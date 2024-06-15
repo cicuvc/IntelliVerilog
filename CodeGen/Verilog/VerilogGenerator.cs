@@ -1,0 +1,489 @@
+﻿using IntelliVerilog.Core.Analysis;
+using IntelliVerilog.Core.Components;
+using IntelliVerilog.Core.Expressions;
+using IntelliVerilog.Core.Expressions.Algebra;
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace IntelliVerilog.Core.CodeGen.Verilog {
+    public class VerilogGenerationConfiguration: CodeGenConfiguration {
+        public int IndentCount { get; set; } = 4;
+        public char IndentChar { get; set; } = ' ';
+        public string NewLine { get; set; } = Environment.NewLine;
+    }
+    public class VerilogGenerationContext {
+        public VerilogGenerationConfiguration Configuration { get; }
+        protected StringBuilder m_Buffer;
+        protected int m_Indent;
+        protected string m_IndentPrefix = "";
+        protected bool m_CurrentLineEmpty = true;
+
+        public bool CurrentLineEmpty => m_CurrentLineEmpty;
+        private struct VerilogGenerationIndent : IDisposable {
+            private VerilogGenerationContext m_Context;
+            public VerilogGenerationIndent(VerilogGenerationContext context) => m_Context = context;
+            public void Dispose() => m_Context.EndIndent();
+        }
+        public VerilogGenerationContext(VerilogGenerationConfiguration configuration) {
+            Configuration = configuration;
+            m_Buffer = new();
+        }
+        public IDisposable BeginIndent() {
+            m_Indent += Configuration.IndentCount;
+            m_IndentPrefix = new(Configuration.IndentChar, m_Indent);
+            return new VerilogGenerationIndent(this);
+        }
+        protected void EndIndent() {
+            m_Indent -= Configuration.IndentCount;
+            m_IndentPrefix = new(Configuration.IndentChar, m_Indent);
+        }
+        public string Dump() {
+            return m_Buffer.ToString();
+        }
+        public void Append(string s) {
+            Debug.Assert(!s.Contains('\r'));
+            Debug.Assert(!s.Contains('\n'));
+            if (m_CurrentLineEmpty) {
+                m_CurrentLineEmpty = false;
+                m_Buffer.Append(m_IndentPrefix);
+            }
+            m_Buffer.Append(s);
+        }
+        public void AppendLine(string s = "") {
+            Debug.Assert(!s.Contains('\r'));
+            Debug.Assert(!s.Contains('\n'));
+            if (m_CurrentLineEmpty) {
+                m_CurrentLineEmpty = false;
+                m_Buffer.Append(m_IndentPrefix);
+            }
+            m_Buffer.Append(s);
+            m_Buffer.Append(Configuration.NewLine);
+            m_CurrentLineEmpty = true;
+        }
+        public void AppendFormat(string fmt, params object[] values) 
+            => Append(string.Format(fmt, values));
+    }
+    public abstract class VerilogAstNode {
+        public abstract void GenerateCode(VerilogGenerationContext context);
+    }
+    public abstract class VerilogValueDef: VerilogAstNode { 
+        public abstract string Name { get; set; }
+    }
+    public class VerilogWireDef : VerilogValueDef {
+        protected VerilogPureIdentifier? m_IdentifierCache = null;
+        public override string Name { get; set; }
+        public uint Width { get; set; }
+        public int[] Shape { get; set; }
+        public VerilogPureIdentifier Identifier {
+            get {
+                if (m_IdentifierCache == null) m_IdentifierCache = new(Name);
+                return m_IdentifierCache;
+            }
+        }
+        public VerilogWireDef(string name, uint width, int[] shape) {
+            Name = name;
+            Width = width;
+            Shape = shape;
+        }
+        public override void GenerateCode(VerilogGenerationContext context) {
+            if(Width > 1) {
+                context.AppendFormat("wire[{0}:0] ", Width - 1);
+            } else {
+                context.Append("wire ");
+            }
+
+            context.Append(Name);
+
+            foreach(var i in Shape) {
+                context.AppendFormat("[{0}:0]", i - 1);
+            }
+        }
+    }
+    public class VerilogEmptyLine : VerilogAstNode {
+        public override void GenerateCode(VerilogGenerationContext context) {
+            
+        }
+    }
+    public class VeriloAssignment : VerilogAstNode {
+        public VerilogAstNode LeftValue { get; }
+        public VerilogAstNode RightValue { get; }
+        public VeriloAssignment(VerilogAstNode leftValue, VerilogAstNode rightValue) {
+            LeftValue = leftValue;
+            RightValue = rightValue;
+        }
+        public override void GenerateCode(VerilogGenerationContext context) {
+            context.Append("assign ");
+            LeftValue.GenerateCode(context);
+            context.Append(" = ");
+            RightValue.GenerateCode(context);
+        }
+    }
+    public class VerilogModule : VerilogAstNode {
+        public List<VerilogIoDecl> IoPorts { get; set; } = new();
+        public Dictionary<IoComponent, VerilogAstNode> SubModuleOutputMap { get; } = new();
+        public Module BackModule { get; }
+        public List<VerilogAstNode> Contents { get; } = new();
+        public VerilogModule(Module backModule) => BackModule = backModule;
+        public override void GenerateCode(VerilogGenerationContext context) {
+            context.Append("module ");
+            context.Append(BackModule.GetType().Name);
+            context.AppendLine("(");
+
+            using (context.BeginIndent()) {
+                var lastPort = IoPorts.Last();
+                foreach (var i in IoPorts) {
+                    i.GenerateCode(context);
+                    if (i != lastPort) {
+                        context.AppendLine(",");
+                    } else {
+                        context.AppendLine();
+                    }
+                }
+            }
+
+            context.AppendLine(");");
+
+            using (context.BeginIndent()) {
+                foreach (var i in Contents) {
+                    i.GenerateCode(context);
+                    if (!context.CurrentLineEmpty) context.AppendLine(";");
+                    else context.AppendLine();
+                }
+            }
+
+            context.AppendLine("endmodule");
+        }
+    }
+    public enum VerilogIoType {
+        Input, Output, InOut
+    }
+    public class VerilogIoDecl: VerilogValueDef {
+        public VerilogIoType Type { get; set; }
+        public override string Name { get; set; }
+        public uint Width { get; set; }
+        public bool IsRegister { get; set; }
+        public IoComponent DeclIoComponent { get; set; }
+        public VerilogIoDecl(IoComponent decl ,string name, VerilogIoType type,  uint width = 1, bool isRegister = false) {
+            DeclIoComponent = decl;
+            Name = name;
+            Type = type;
+            Width = width;
+            IsRegister = isRegister;
+        }
+
+        public override void GenerateCode(VerilogGenerationContext context) {
+            context.Append(Type switch { 
+                VerilogIoType.Input => "input",
+                VerilogIoType.Output => IsRegister ? "output reg" : "output" ,
+                VerilogIoType.InOut => "inout",
+                _ => throw new NotImplementedException()
+            });
+            if(Width > 1) {
+                context.AppendFormat("[{0}:0] ", Width - 1);
+            } else {
+                context.Append(" ");
+            }
+            context.Append(Name);
+        }
+    }
+    public class ModuleInstDecl : VerilogAstNode {
+        public Module SubModule { get; }
+        public string Name { get; }
+        public List<(string portName, VerilogAstNode value)> PortConnections { get; } = new();
+        public ModuleInstDecl(Module subModule, string instanceName) {
+            SubModule = subModule;
+            Name = instanceName;
+        }
+        public override void GenerateCode(VerilogGenerationContext context) {
+            context.Append(SubModule.GetType().Name);
+            context.Append(" ");
+            context.Append(Name);
+            context.AppendLine("(");
+
+            using (context.BeginIndent()) {
+                for(var i = 0; i< PortConnections.Count;i++) {
+                    var connections = PortConnections[i];
+                    context.AppendFormat(".{0}(", connections.portName);
+                    connections.value.GenerateCode(context);
+                    context.AppendLine(i == PortConnections.Count - 1 ? ")":"),");
+                }
+            }
+
+            context.Append(")");
+        }
+    }
+    public class VerilogPureIdentifier : VerilogValueDef {
+        public override string Name { get; set; }
+        public VerilogPureIdentifier(string name) {
+            Name = name;
+        }
+
+        public override void GenerateCode(VerilogGenerationContext context) {
+            context.Append(Name);
+        }
+    }
+    public class VerilogRangeSelection :VerilogAstNode{
+        public VerilogValueDef BaseValue { get; }
+        public Range SelectedRange { get; set; }
+        public int TotalBits { get; }
+        public VerilogRangeSelection(VerilogValueDef baseValue, Range range, int totalBits) {
+            BaseValue = baseValue;
+            SelectedRange = range;
+            TotalBits = totalBits;
+        }
+
+        public override void GenerateCode(VerilogGenerationContext context) {
+            BaseValue.GenerateCode(context);
+
+            if (TotalBits == 1) return;
+            var start = SelectedRange.Start.GetOffset(TotalBits);
+            var end = SelectedRange.End.GetOffset(TotalBits) - 1;
+            if (start == end) {
+                context.AppendFormat("[{0}]", end);
+
+            } else {
+                context.AppendFormat("[{0}:{1}]", end, start);
+            }
+        }
+    }
+    public abstract class VerilogBinaryOperator: VerilogAstNode {
+        public VerilogAstNode LeftValue { get; }
+        public VerilogAstNode RightValue { get; }
+        public abstract string Operator { get; }
+        public VerilogBinaryOperator(VerilogAstNode lhs, VerilogAstNode rhs) {
+            LeftValue = lhs;
+            RightValue = rhs;
+        }
+        public override void GenerateCode(VerilogGenerationContext context) {
+            context.Append("(");
+            LeftValue.GenerateCode(context);
+            context.AppendFormat(Operator);
+            RightValue.GenerateCode(context);
+            context.Append(")");
+        }
+    }
+    public class VerilogXorExpression : VerilogBinaryOperator {
+        public VerilogXorExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " ^ ";
+    }
+    public class VerilogAndExpression : VerilogBinaryOperator {
+        public VerilogAndExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " & ";
+    }
+    public class VerilogCombinationExpression : VerilogAstNode {
+        public VerilogAstNode[] Values { get; }
+        public VerilogCombinationExpression(VerilogAstNode[] nodes) {
+            Values = nodes;
+        }
+        public override void GenerateCode(VerilogGenerationContext context) {
+            if(Values.Length > 1) context.Append("{");
+            for(var i = 0; i < Values.Length; i++) {
+                Values[i].GenerateCode(context);
+                if (i != Values.Length - 1) context.Append(",");
+            }
+
+            if (Values.Length > 1) context.Append("}");
+        }
+    }
+    public class VerilogOrExpression : VerilogBinaryOperator {
+        public VerilogOrExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " | ";
+    }
+    public class VerilogGenerator : ICodeGenBackend<VerilogGenerationConfiguration> {
+        protected VerilogAstNode ConvertExpressions(AbstractValue value, ComponentModel model, VerilogModule module) {
+            if(value is IUntypedBinaryExpression binaryExpr) {
+                var lhs = ConvertExpressions(binaryExpr.UntypedLeft, model, module);
+                var rhs = ConvertExpressions(binaryExpr.UntypedRight, model, module);
+                if (value is BoolXorExpression) 
+                    return new VerilogXorExpression(lhs, rhs);
+                if (value is BoolAndExpression)
+                    return new VerilogAndExpression(lhs, rhs);
+                if (value is BoolOrExpression)
+                    return new VerilogOrExpression(lhs, rhs);
+            }
+            if(value is IUntypedUnaryExpression unaryExpression) {
+                var lhs = ConvertExpressions(unaryExpression.UntypedValue, model, module);
+
+                var valueType = value.GetType();
+                if (valueType.IsConstructedGenericType && valueType.GetGenericTypeDefinition() == typeof(CastExpression<,>)) {
+                    return lhs;
+                }
+
+                if(value is UIntBitsSelectionExpression bitSelection) {
+                    return new VerilogRangeSelection((VerilogValueDef)lhs, bitSelection.SelectedRange, (int)unaryExpression.UntypedValue.Type.WidthBits);
+                }
+            }
+            if(value is IUntypedIoRightValueWrapper rightValue) {
+                var ioComponent = rightValue.UntypedComponent;
+                var iUntyped = (IUntypedConstructionPort)ioComponent;
+                if(iUntyped.Component == model.ReferenceModule) {
+                    var ioRef = module.IoPorts.Find(e => e.DeclIoComponent == ioComponent);
+                    return new VerilogPureIdentifier(ioRef.Name);
+                }
+                
+                if (model.SubComponents.SelectMany(e => e.Value).Contains(iUntyped.Component)) {
+                    var wireDecl = module.SubModuleOutputMap[ioComponent];
+                    return wireDecl ;
+                }
+                throw new NotImplementedException();
+                
+                
+            }
+            if (value is INamedStageExpression namedStaged) {
+                var count = model.IntermediateValueCount[namedStaged.BaseName].Count;
+                var identifier = new VerilogPureIdentifier(namedStaged.BaseName);
+                var selection = new VerilogRangeSelection(identifier, namedStaged.Index..(namedStaged.Index + 1), count);
+
+
+                return selection;
+            }
+            throw new NotImplementedException();
+        }
+        protected VerilogModule ConvertModuleAst(Module module) {
+            var moduleAst = new VerilogModule(module);
+
+            var componentModel = module.InternalModel;
+
+            foreach(var (portInfo, internalData) in componentModel.IoPortShape) {
+                var path = portInfo.Location;
+                var portName = $"{string.Join('_', path.Path.Select(e=>e.Name))}_{path.Name}";
+                var portType = portInfo.Direction switch { 
+                    IoPortDirection.Input => VerilogIoType.Input,
+                    IoPortDirection.Output => VerilogIoType.Output,
+                    IoPortDirection.InOut => VerilogIoType.InOut,
+                    _ => throw new NotImplementedException()
+                };
+
+                moduleAst.IoPorts.Add(new((IoComponent)portInfo,portName, portType, portInfo.UntypedType.WidthBits, false));
+            }
+
+
+            foreach(var i in componentModel.IntermediateValueCount) {
+                moduleAst.Contents.Add(new VerilogWireDef(i.Key, i.Value.UntypedType?.WidthBits ?? 1,new int[] { i.Value.Count }));
+            }
+
+            moduleAst.Contents.Add(new VerilogEmptyLine());
+
+            foreach(var (instName, instGroup) in componentModel.SubComponents) {
+                var subModel = instGroup[0].InternalModel;
+
+                foreach (var (portInfo, internalData) in subModel.IoPortShape) {
+                    if(portInfo.Direction == IoPortDirection.Output) {
+                        var path = portInfo.Location;
+                        var portName = $"{instName}_{string.Join('_', path.Path.Select(e=>e.Name))}_{path.Name}";
+                        var portType = portInfo.Direction switch {
+                            IoPortDirection.Input => VerilogIoType.Input,
+                            IoPortDirection.Output => VerilogIoType.Output,
+                            IoPortDirection.InOut => VerilogIoType.InOut,
+                            _ => throw new NotImplementedException()
+                        };
+
+                        var wireDef = new VerilogWireDef(portName, portInfo.UntypedType.WidthBits, new int[] { instGroup.Count});
+
+                        moduleAst.Contents.Add(wireDef);
+
+                        for (var j=0;j< instGroup.Count; j++) {
+                            var externalOutput = path.TraceValue(instGroup[j]);
+                            var selection = new VerilogRangeSelection(wireDef.Identifier, j..(j + 1), instGroup.Count);
+                            
+                            moduleAst.SubModuleOutputMap.Add(externalOutput, selection);
+                        }
+                        
+
+                        
+                    }
+                    
+                }
+            }
+
+            moduleAst.Contents.Add(new VerilogEmptyLine());
+
+            foreach (var i in componentModel.IntermediateValues) {
+                var count = componentModel.IntermediateValueCount[i.BaseName].Count;
+                var identifier = new VerilogPureIdentifier(i.BaseName);
+                var selection = new VerilogRangeSelection(identifier, i.Index..(i.Index + 1), count);
+
+
+                var value = ConvertExpressions(i.InternalValue, componentModel, moduleAst);
+                moduleAst.Contents.Add(new VeriloAssignment(selection, value));
+            }
+
+            moduleAst.Contents.Add(new VerilogEmptyLine());
+
+            foreach (var i in moduleAst.IoPorts) {
+                var identifier = new VerilogPureIdentifier(i.Name);
+                var portDecl = (IUntypedConstructionPort)i.DeclIoComponent;
+                var outputAssignments = componentModel.IoPortShape[portDecl];
+
+                foreach(var (value, range) in outputAssignments) {
+                    var selection = new VerilogRangeSelection(identifier, range, (int)portDecl.UntypedType.WidthBits);
+                    var expr = ConvertExpressions(value, componentModel, moduleAst);
+                    moduleAst.Contents.Add(new VeriloAssignment(selection, expr));
+                }
+            }
+
+            moduleAst.Contents.Add(new VerilogEmptyLine());
+
+            foreach (var (instName, instGroup) in componentModel.SubComponents) {
+                for(var j=0;j< instGroup.Count; j++) {
+                    if (instGroup[j] is Module subModule) {
+                        var subModel = subModule.InternalModel;
+                        var modelInst = new ModuleInstDecl(subModule,$"{instName}_{j}");
+
+                        foreach (var (portInfo, internalData) in subModel.IoPortShape) {
+                            var path = portInfo.Location;
+                            var portName = $"{string.Join('_', path.Path.Select(e => e.Name))}_{path.Name}";
+                            if (portInfo.Direction == IoPortDirection.Output) {
+                                var externalOutput = path.TraceValue(subModule);
+
+                                var exportWire = moduleAst.SubModuleOutputMap[externalOutput];
+
+                                modelInst.PortConnections.Add((portName, exportWire));
+                            }
+                            if (portInfo.Direction == IoPortDirection.Input) {
+                                var assignments = componentModel.QueryAssignedSubComponentIoValues(portInfo,subModule);
+                                if (assignments.Count() == 0) continue;
+
+                                var subValues = assignments.OrderByDescending(e => e.range.Start.GetOffset(internalData.BitsAssigned.TotalBits))
+                                        .Select(e => { 
+                                            return ConvertExpressions(e.assignValue, componentModel, moduleAst);
+                                        }).ToArray();
+
+                                var portInputValue = new VerilogCombinationExpression(subValues);
+
+                                modelInst.PortConnections.Add((portName, portInputValue));
+
+                            }
+
+                        }
+
+                        moduleAst.Contents.Add(modelInst);
+                    }
+                }
+            }
+
+            return moduleAst;
+        }
+        public string GenerateModuleCode(Module module, VerilogGenerationConfiguration? configuration = null) {
+            var context = new VerilogGenerationContext(configuration ?? new());
+            var moduleAst = ConvertModuleAst(module);
+
+            moduleAst.GenerateCode(context);
+
+            return context.Dump();
+        }
+    }
+}
