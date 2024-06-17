@@ -1,4 +1,5 @@
-﻿using IntelliVerilog.Core.Runtime.Unsafe;
+﻿using IntelliVerilog.Core.Analysis;
+using IntelliVerilog.Core.Runtime.Unsafe;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -12,7 +13,7 @@ namespace IntelliVerilog.Core.Utils {
         False = 0, True = 1, Mix = 2
 
     }
-    public class Bitset:IDisposable {
+    public class Bitset:IDisposable,IEquatable<Bitset> {
         private const int m_ElementBits = 64;
         private MemoryRegion<ulong> m_Data;
         private bool m_DisposedValue;
@@ -24,6 +25,13 @@ namespace IntelliVerilog.Core.Utils {
             m_TotalBits = bits;
             m_Data = MemoryAPI.API.Alloc<ulong>((uint)Math.Ceiling(1.0 * bits / m_ElementBits));
             for (var i = 0u; i < m_Data.ElementLength; i++) m_Data[i] = 0;
+        }
+        public Bitset Clone() {
+            var newSet = new Bitset(TotalBits);
+            for(var i = 0u; i < m_Data.ElementLength; i++) {
+                newSet.m_Data[i] = m_Data[i];
+            }
+            return newSet;
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ulong GetMask(int length) {
@@ -56,10 +64,18 @@ namespace IntelliVerilog.Core.Utils {
                 }
             }
         }
-        public BitRegionState this[Range range] {
+        public void InplaceAnd(Bitset bitset) {
+            Debug.Assert(bitset.TotalBits == TotalBits);
+
+            for(var i=0u;i< m_Data.ElementLength; i++) {
+                m_Data[i] &= bitset.m_Data[i];
+            }
+        }
+
+        public BitRegionState this[SpecifiedRange range] {
             get {
-                var start = range.Start.GetOffset(m_TotalBits);
-                var end = range.End.GetOffset(m_TotalBits);
+                var start = range.Left;
+                var end = range.Right;
 
                 Debug.Assert(start < end);
 
@@ -85,8 +101,8 @@ namespace IntelliVerilog.Core.Utils {
 
                 var en = value == BitRegionState.True;
 
-                var start = range.Start.GetOffset(m_TotalBits);
-                var end = range.End.GetOffset(m_TotalBits);
+                var start = range.Left;
+                var end = range.Right;
 
                 Debug.Assert(start < end);
 
@@ -126,6 +142,14 @@ namespace IntelliVerilog.Core.Utils {
                 }
             }
             return new string(sb);
+        }
+
+        public bool Equals(Bitset? other) {
+            if (other?.m_TotalBits != m_TotalBits) return false;
+            for(var i = 0u; i < m_Data.ElementLength; i++) {
+                if (m_Data[i] != other.m_Data[i]) return false;
+            }
+            return true;
         }
     }
 }

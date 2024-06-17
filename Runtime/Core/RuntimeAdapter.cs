@@ -102,7 +102,7 @@ namespace IntelliVerilog.Core.Runtime.Core {
             var isHeapPointerFunc = ((nint*)vtblPtr)[m_VtblIsHeapPointerOffset / nint.Size];
             var isHeapPointer = (delegate* unmanaged[Cdecl]<nint, nint, bool, byte>)isHeapPointerFunc;
 
-            var gen = (((delegate* unmanaged[Cdecl]<nint, nint, int>*)vtblPtr)[m_VtblWhichGeneration / nint.Size])(gcHeapPtr, pointer);
+            //var gen = (((delegate* unmanaged[Cdecl]<nint, nint, int>*)vtblPtr)[m_VtblWhichGeneration / nint.Size])(gcHeapPtr, pointer);
             return isHeapPointer(gcHeapPtr, pointer, false) != 0;
         }
 

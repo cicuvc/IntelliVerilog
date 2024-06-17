@@ -24,7 +24,8 @@ namespace IntelliVerilog.Core.Runtime.Core {
         public nint RIP; // 72
         public nint RAX; // 80
     }
-    public class CheckPoint<T> {
+    public class CheckPoint<T>:IDisposable {
+        private bool m_DisposedValue;
         public bool Initialized { get; set; } = false;
         public T? Result { get; set; }
         public CheckPointRecorder Recorder { get; }
@@ -37,6 +38,25 @@ namespace IntelliVerilog.Core.Runtime.Core {
         }
         public void RestoreCheckPoint(T value) {
             Recorder.RestoreCheckPoint(this, value);
+        }
+
+        protected virtual void Dispose(bool disposing) {
+            if (!m_DisposedValue) {
+                if (disposing) {}
+
+                MemoryAPI.API.Free(StackStorage);
+                MemoryAPI.API.Free(PinMask);
+                m_DisposedValue = true;
+            }
+        }
+
+        ~CheckPoint() {
+            Dispose(disposing: false);
+        }
+
+        public void Dispose() {
+            Dispose(disposing: true);
+            GC.SuppressFinalize(this);
         }
     }
     public unsafe class CheckPointRecorder {

@@ -57,7 +57,18 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
             return false;
         }
     }
-
+    public class UIntCombinationExpression : RightValue<UInt> {
+        public AbstractValue[] SubExpressions { get; }
+        public UIntCombinationExpression(AbstractValue[] subExpressions):base(new((uint)subExpressions.Sum(e=>e.Type.WidthBits))) {
+            SubExpressions = subExpressions;
+        }
+        public override bool Equals(AbstractValue? other) {
+            if(other is UIntCombinationExpression combExpression) {
+                return SubExpressions.SequenceEqual(combExpression.SubExpressions);
+            }
+            return false;
+        }
+    }
     public class UIntAlgebra : IAlg<UInt> {
         public static UIntAlgebra Instance { get; } = new();
         public RightValue<UInt> AddExpression(RightValue<UInt> lhs, RightValue<UInt> rhs)
@@ -73,8 +84,12 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
         public RightValue<UInt> DivExpression(RightValue<UInt> lhs, RightValue<UInt> rhs)
             => new UIntDivExpression(lhs, rhs);
 
-        public RightValue<UInt> GetSelectionValue(RightValue<UInt> lhs, int index)
-            => new UIntBitsSelectionExpression(new(1), lhs, new Range(index, index + 1));
+        public AbstractValue GetCombinationValue(AbstractValue[] expressions) {
+            return new UIntCombinationExpression(expressions);
+        }
+
+        public RightValue<UInt> GetSelectionValue(RightValue<UInt> lhs, Range index)
+            => new UIntBitsSelectionExpression(new(1), lhs, index);
 
         public RightValue<UInt> MulExpression(RightValue<UInt> lhs, RightValue<UInt> rhs)
             => new UIntMulExpression(lhs, rhs);

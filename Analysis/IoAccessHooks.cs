@@ -86,7 +86,7 @@ namespace IntelliVerilog.Core.Analysis {
             // TODO: Fix reference check
             if(oldValue != null) {
                 var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
-                var returnAddress = returnTracker.TrackReturnAddressValueType((nint)Unsafe.AsPointer(ref tuple));
+                var returnAddress = returnTracker.TrackReturnAddress(newValue, paramIndex : 3);
 
                 buildingModel.AssignSubModuleConnections(oldValue, newValue, Range.All, returnAddress);
             } else {

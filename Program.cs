@@ -39,15 +39,34 @@ public class PrimaryOp: BehaviorDesc {
     }
 }
 public class PrimaryExit: BehaviorDesc { }
-public class PrimaryAssignment : PrimaryOp {
-    public IUntypedPort LeftValue { get; }
-    public IExpressionAssignedIoType RightValue { get; }
-    public Range SelectedRange { get; }
-    public PrimaryAssignment(IUntypedPort leftValue, IExpressionAssignedIoType rightValue, Range range, nint returnAddress) : base(returnAddress) {
+public interface IPrimaryAssignment {
+    IUntypedConstructionPort LeftValue { get; }
+    AbstractValue RightValue { get; set; }
+    SpecifiedRange SelectedRange { get; set; }
+}
+public class PrimaryAssignment : PrimaryOp, IPrimaryAssignment {
+    public IUntypedConstructionPort LeftValue { get; }
+    public AbstractValue RightValue { get; set; }
+    public SpecifiedRange SelectedRange { get; set; }
+    public PrimaryAssignment(IUntypedConstructionPort leftValue, AbstractValue rightValue, SpecifiedRange range, nint returnAddress) : base(returnAddress) {
         LeftValue = leftValue;
         RightValue = rightValue;
         SelectedRange = range;
     }
+}
+public class SubComponentAssignment: PrimaryOp, IPrimaryAssignment {
+    public SubComponentAssignment(nint returnAddress, IoPortExternalInfo portInfo, AbstractValue rightValue, SpecifiedRange selRange) : base(returnAddress) {
+        PortInfo = portInfo;
+        RightValue = rightValue;
+        SelectedRange = selRange;
+    }
+
+    public IoPortExternalInfo PortInfo { get; }
+    public AbstractValue RightValue { get; set; }
+    public SpecifiedRange SelectedRange { get; set; }
+
+    public IUntypedConstructionPort LeftValue => PortInfo.IoComponentDecl;
+
 }
 public class PrimaryCondEval : PrimaryOp {
     public AbstractValue Condition { get; }
@@ -71,6 +90,12 @@ public class BranchDesc: BehaviorDesc {
     public BranchDesc(PrimaryCondEval condition) {
         Condition = condition;
     }
+    public void EnumerateDesc(Action<BehaviorDesc> callback) {
+        foreach(var i in TrueBranch.Concat(FalseBranch)) {
+            if (i is BranchDesc branch) branch.EnumerateDesc(callback);
+            else callback(i);
+        }
+    }
 }
 public static class ListExtensions {
     public static T RemoveLast<T>(this List<T> list) {
@@ -84,6 +109,8 @@ public class BehaviorContext {
     protected List<BranchDesc> m_ActiveBranch = new();
     protected CheckPointRecorder m_Recorder;
     protected PrimaryExit m_EndOp;
+    public bool IsInBranchContext => m_ActiveBranch.Count > 1;
+    public BranchDesc Root => m_ActiveBranch[0];
     public BehaviorContext(CheckPointRecorder recorder) {
         m_Recorder = recorder;
         m_EndOp = new();
@@ -94,7 +121,7 @@ public class BehaviorContext {
 
         m_ActiveBranch.Add(dummyBranch);
     }
-
+    
     public void ConstructionEnd() {
         if(UnwindBranches(e => e == m_EndOp)) {
             ProcessBranchMerge();
@@ -148,6 +175,7 @@ public class BehaviorContext {
             throw new UnreachableException("What?");
         } else {
             m_ActiveBranch.RemoveAt(m_ActiveBranch.Count - 1);
+            desc.Condition.CheckPoint!.Dispose();
 
             var currentContext = m_ActiveBranch.Last();
 
@@ -161,19 +189,34 @@ public class BehaviorContext {
             desc.TrueBranch.RemoveRange(desc.FirstMergeOpIndex, desc.TrueBranch.Count - desc.FirstMergeOpIndex);
         }
     }
-    public void NotifyAssignment(nint returnAddress, IUntypedPort leftValue, IExpressionAssignedIoType rightValue, Range range) {
+    public void NotifyAssignment(nint returnAddress, IUntypedPort leftValue, AbstractValue rightValue, SpecifiedRange range) {
         if (UnwindBranches(e => {
             if (e is PrimaryAssignment assignment) {
-                return assignment.LeftValue == leftValue ||
-                    assignment.RightValue.UntypedExpression.Equals(rightValue.UntypedExpression) ||
-                    assignment.SelectedRange.Equals(range) ||
-                    assignment.ReturnAddress == returnAddress;
+                return assignment.ReturnAddress == returnAddress && 
+                    assignment.LeftValue == leftValue &&
+                    assignment.RightValue.Equals(rightValue) &&
+                    assignment.SelectedRange.Equals(range);
             }
             return false;
         })) {
             ProcessBranchMerge();
         } else {
-            m_ActiveBranch.Last().CurrentList.Add(new PrimaryAssignment(leftValue, rightValue, range, returnAddress));
+            m_ActiveBranch.Last().CurrentList.Add(new PrimaryAssignment((IUntypedConstructionPort)leftValue, rightValue, range, returnAddress));
+        }
+    }
+    public void NotifyComponentAssignment(nint returnAddress, IoPortExternalInfo leftValue, AbstractValue rightValue, SpecifiedRange range) {
+        if (UnwindBranches(e => {
+            if (e is SubComponentAssignment assignment) {
+                return assignment.ReturnAddress == returnAddress && 
+                    assignment.PortInfo == leftValue &&
+                    assignment.RightValue.Equals(rightValue) &&
+                    assignment.SelectedRange.Equals(range);
+            }
+            return false;
+        })) {
+            ProcessBranchMerge();
+        } else {
+            m_ActiveBranch.Last().CurrentList.Add(new SubComponentAssignment(returnAddress, leftValue, rightValue, range));
         }
     }
 }
@@ -195,27 +238,27 @@ public unsafe class ReturnAddressTracker {
     protected bool IsManagedCode(nint codePointer) {
         return m_FindCodeRange(codePointer, 0) != nint.Zero;
     }
-    public nint TrackReturnAddress(object thisObject, int limit = 16384) {
+    public nint TrackReturnAddress(object thisObject, int paramIndex = 1, int limit = 16384) {
         var stackPointerValue = stackalloc nint[1];
         var stackPointer = (nint)stackPointerValue;
         for (var i = stackPointer;i < stackPointer + limit; i += nint.Size) {
             var slotData = *(nint*)i;
             if (!IsManagedCode(slotData)) continue;
 
-            var rcxSlot = i + 1 * nint.Size;
+            var rcxSlot = i + paramIndex * nint.Size;
             ref var objectRef = ref Unsafe.AsRef<object>((void*)rcxSlot);
             if (objectRef == thisObject) return slotData;
         }
         throw new NotImplementedException();
     }
-    public nint TrackReturnAddressValueType(nint firstArgument, int limit = 16384) {
+    public nint TrackReturnAddressValueType(nint firstArgument, int paramIndex = 1, int limit = 16384) {
         var stackPointerValue = stackalloc nint[1];
         var stackPointer = (nint)stackPointerValue;
         for (var i = stackPointer; i < stackPointer + limit; i += nint.Size) {
             var slotData = *(nint*)i;
             if (!IsManagedCode(slotData)) continue;
 
-            var rcxSlot = i + 1 * nint.Size;
+            var rcxSlot = i + paramIndex * nint.Size;
             //ref var objectRef = ref Unsafe.AsRef<T>(*(void**)rcxSlot);
             if (*(nint*)rcxSlot == firstArgument) return slotData;
         }
@@ -256,7 +299,7 @@ public unsafe static class App {
         RuntimeInjection.AddCompileCallback(new ModuleCompiler());
         RuntimeInjection.HookEnable();
 
-        var adder = new Adder(3);
+        var adder = new MuxDemo(3);
 
         var codeGen = new VerilogGenerator();
         var generatedModel = new Dictionary<ComponentModel, Components.Module>();

@@ -55,7 +55,15 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
         public RightValue<Bool> DivExpression(RightValue<Bool> lhs, RightValue<Bool> rhs)
             => new BoolDivExpression(lhs, rhs);
 
+        public AbstractValue GetCombinationValue(AbstractValue[] expressions) {
+            throw new NotImplementedException();
+        }
+
         public RightValue<Bool> GetSelectionValue(RightValue<Bool> lhs, int index) {
+            throw new NotImplementedException();
+        }
+
+        public RightValue<Bool> GetSelectionValue(RightValue<Bool> lhs, Range range) {
             throw new NotImplementedException();
         }
 

@@ -87,6 +87,11 @@ namespace IntelliVerilog.Core.Components {
             context.OnEnterConstruction(this);
         }
         protected void EndConstruction() {
+            var model = m_InternalModel as ComponentBuildingModel;
+            model.Behavior.ConstructionEnd();
+
+            model.ModelCheck();
+
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
 
             context.OnExitConstruction(this);

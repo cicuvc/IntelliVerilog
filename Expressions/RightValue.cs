@@ -1,4 +1,5 @@
-﻿using IntelliVerilog.Core.DataTypes;
+﻿using IntelliVerilog.Core.Analysis;
+using IntelliVerilog.Core.DataTypes;
 using IntelliVerilog.Core.Expressions.Algebra;
 using System;
 using System.Collections.Generic;
@@ -17,6 +18,8 @@ public abstract class AbstractValue :IEquatable<AbstractValue> {
     }
 
     public abstract bool Equals(AbstractValue? other);
+    public abstract AbstractValue GetBitSelection(Range range);
+    public abstract AbstractValue GetCombination(params AbstractValue[] values);
 }
 
 public interface IRightValueOps<TValue, TData> where TValue: IRightValueOps<TValue, TData> where TData: DataType {
@@ -79,7 +82,12 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
         return lhs.TypedAlgebra.AndExpression(lhs, rhs);
     }
     public static implicit operator bool(RightValue<TData> lhs) {
-        return lhs.TypedAlgebra.BoolCast(lhs);
+        var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
+        var model = context.CurrentComponent.InternalModel as ComponentBuildingModel;
+        var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
+        var returnAddress = returnTracker.TrackReturnAddress(lhs, paramIndex: 2);
+
+        return model.Behavior.NotifyConditionEvaluation(returnAddress, lhs);
     }
 
     public RightValue<Bool> this[uint index] {
@@ -87,14 +95,22 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
         set => throw new NotImplementedException();
     }
     public RightValue<Bool> this[int index] {
-        get => new CastExpression<TData, Bool>(Bool.CreateDefault(), TypedAlgebra.GetSelectionValue(this, index));
+        get => new CastExpression<TData, Bool>(Bool.CreateDefault(), TypedAlgebra.GetSelectionValue(this, index..(index+1)));
         set => throw new NotImplementedException();
     }
     public RightValue<TData> this[Range range] {
         get => throw new NotImplementedException();
         set => throw new NotImplementedException();
     }
+    public override AbstractValue GetBitSelection(Range range) {
+        return TypedAlgebra.GetSelectionValue(this, range);
+    }
+    public override AbstractValue GetCombination(params AbstractValue[] values) {
+        return TypedAlgebra.GetCombinationValue(values);
+    }
 }
+
+
 
 public abstract class LeftValue<TData> : RightValue<TData>, ILeftValueOps<TData> where TData : DataType {
     public LeftValue(TData type, IAlg? algebra = null) : base(type, algebra) {
