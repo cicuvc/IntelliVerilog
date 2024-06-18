@@ -8,6 +8,19 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.Examples {
+    public class IdentiMod: Module<(
+        Input<UInt> inValue,
+        Output<UInt> outValue
+        )> {
+        public IdentiMod(uint bits) {
+            ref var io = ref UseDefaultIo(new() { 
+                inValue = bits.Bits(),
+                outValue = bits.Bits()
+            });
+
+            io.outValue = io.inValue.RValue;
+        }
+    }
     public class MuxDemo : Module<
         (Input<UInt> a,
         Input<UInt> b,
@@ -24,9 +37,11 @@ namespace IntelliVerilog.Core.Examples {
             });
 
             io.o2 = io.a.RValue;
-            io.output = io.b.RValue;
 
+            //io.output[0] = io.a.RValue[0];
             if (io.en.RValue) {
+                io.output = io.b.RValue;
+            } else {
                 io.output = io.a.RValue;
             }
         }

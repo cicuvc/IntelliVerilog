@@ -189,7 +189,7 @@ namespace IntelliVerilog.Core.Components {
         
     }
     [IoComponentProbable<BundleIoProbeAux>]
-    public class IoBundle : IUntypedConstructionPort {
+    public class IoBundle : IUntypedConstructionPort, IAssignableValue {
         [IoIgnore]
         public IoBundle Parent { get; protected set; } = null!;
         [IoIgnore]
@@ -213,6 +213,8 @@ namespace IntelliVerilog.Core.Components {
         public IUntypedDeclPort Creator => throw new NotSupportedException();
         [IoIgnore]
         public IUntypedConstructionPort InternalPort => throw new NotImplementedException();
+
+        public Func<string> Name { get; set; } = () => "<unnamed bundle>";
 
         public IoBundle() {
             Component = Component ?? null!;

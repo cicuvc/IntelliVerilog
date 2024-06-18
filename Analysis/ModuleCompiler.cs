@@ -118,6 +118,25 @@ namespace IntelliVerilog.Core.Analysis {
                     
                 }
             }
+            foreach(var i in methodBody.LocalVariables) {
+                if (i.LocalType.IsSubclassOf(typeof(Components.Module))) {
+                    var moduleTupledType = i.LocalType;
+                    for(; moduleTupledType!= typeof(Components.Module); moduleTupledType= moduleTupledType.BaseType) {
+                        if (moduleTupledType.IsConstructedGenericType) {
+                            if(moduleTupledType.GetGenericTypeDefinition() == typeof(Components.Module<>)) {
+                                break;
+                            }
+                        }
+                    }
+                    if(moduleTupledType != typeof(Components.Module)) {
+                        var defaultPortType = moduleTupledType.GetGenericArguments()[0];
+                        ioPortTypes.Add(defaultPortType);
+
+                        IvLogger.Default.Verbose("ModuleCompiler", $"Find default IO type {ReflectionHelpers.PrettyTypeName(defaultPortType)}");
+                    }
+
+                }
+            }
 
             var getReturnAddress = ReflectionHelpers.GetReturnAddress;
             var tupleSetHook = typeof(IoAccessHooks).GetMethod("NotifyIoTupleSet", BindingFlags.Static | BindingFlags.Public);

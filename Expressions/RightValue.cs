@@ -5,21 +5,71 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.Expressions;
-public abstract class AbstractValue :IEquatable<AbstractValue> {
+
+public interface IRecursiveExpression {
+    void EnumerateSubNodes(Action<AbstractValue> callback);
+}
+public abstract class AbstractValue :IEquatable<AbstractValue>, IRecursiveExpression {
     public DataType Type { get; }
     public IAlg Algebra { get; }
     public AbstractValue(DataType type, IAlg? algebra = null) {
         Type = type;
         Algebra = algebra ?? type.DefaultAlgebra;
     }
-
     public abstract bool Equals(AbstractValue? other);
-    public abstract AbstractValue GetBitSelection(Range range);
-    public abstract AbstractValue GetCombination(params AbstractValue[] values);
+    public AbstractValue GetBitSelection(Range range) {
+        return new GeneralBitsSelectionExpression(this, new(range, (int)Type.WidthBits));
+    }
+    public AbstractValue GetCombination(params AbstractValue[] values) {
+        return new GeneralCombinationExpression(values[0].Type, values);
+    }
+
+    public abstract void EnumerateSubNodes(Action<AbstractValue> callback);
+}
+
+public class GeneralCombinationExpression : AbstractValue{
+    public AbstractValue[] SubExpressions { get; }
+    public GeneralCombinationExpression(DataType type,AbstractValue[] subExpressions) : base(type.CreateWithWidth((uint)subExpressions.Sum(e => e.Type.WidthBits))) {
+        SubExpressions = subExpressions;
+    }
+    public override bool Equals(AbstractValue? other) {
+        if (other is GeneralCombinationExpression combExpression) {
+            return SubExpressions.SequenceEqual(combExpression.SubExpressions);
+        }
+        return false;
+    }
+
+    public override void EnumerateSubNodes(Action<AbstractValue> callback) {
+        foreach (var i in SubExpressions) callback(i);
+    }
+}
+public class GeneralBitsSelectionExpression : AbstractValue, IUntypedUnaryExpression {
+    public AbstractValue BaseExpression { get; }
+    public SpecifiedRange SelectedRange { get; }
+
+    public AbstractValue UntypedValue => BaseExpression;
+
+    public GeneralBitsSelectionExpression(AbstractValue baseExpression, SpecifiedRange range) : base(baseExpression.Type.CreateWithWidth((uint)range.BitWidth)) {
+        BaseExpression = baseExpression;
+        SelectedRange = range;
+    }
+    public override bool Equals(AbstractValue? other) {
+        if (other is GeneralBitsSelectionExpression expression) {
+            if (expression.SelectedRange.Equals(SelectedRange) && expression.BaseExpression.Equals(BaseExpression)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public override void EnumerateSubNodes(Action<AbstractValue> callback) {
+        callback(BaseExpression);
+    }
 }
 
 public interface IRightValueOps<TValue, TData> where TValue: IRightValueOps<TValue, TData> where TData: DataType {
@@ -95,18 +145,12 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
         set => throw new NotImplementedException();
     }
     public RightValue<Bool> this[int index] {
-        get => new CastExpression<TData, Bool>(Bool.CreateDefault(), TypedAlgebra.GetSelectionValue(this, index..(index+1)));
+        get => new CastExpression<Bool>(Bool.CreateDefault(), GetBitSelection(index..(index+1)));
         set => throw new NotImplementedException();
     }
     public RightValue<TData> this[Range range] {
-        get => throw new NotImplementedException();
+        get => new CastExpression<TData>((TData)Type.CreateWithWidth((uint)range.GetOffsetAndLength((int)Type.WidthBits).Length), GetBitSelection(range));
         set => throw new NotImplementedException();
-    }
-    public override AbstractValue GetBitSelection(Range range) {
-        return TypedAlgebra.GetSelectionValue(this, range);
-    }
-    public override AbstractValue GetCombination(params AbstractValue[] values) {
-        return TypedAlgebra.GetCombinationValue(values);
     }
 }
 
@@ -119,19 +163,23 @@ public abstract class LeftValue<TData> : RightValue<TData>, ILeftValueOps<TData>
     
 }
 
-public class CastExpression<TSource, TDest> : RightValue<TDest>, IUntypedUnaryExpression where TSource : DataType where TDest : DataType {
-    public RightValue<TSource> SourceValue { get; }
+public class CastExpression<TDest> : RightValue<TDest>, IUntypedUnaryExpression where TDest : DataType {
+    public AbstractValue SourceValue { get; }
 
     public AbstractValue UntypedValue => SourceValue;
 
-    public CastExpression(TDest type, RightValue<TSource> value) : base(type, type.DefaultAlgebra) {
+    public CastExpression(TDest type, AbstractValue value) : base(type, type.DefaultAlgebra) {
         SourceValue = value;
     }
 
     public override bool Equals(AbstractValue? other) {
-        if(other is CastExpression<TSource, TDest> expression) {
-            return expression.SourceValue.Equals(SourceValue); 
+        if(other is CastExpression<TDest> expression) {
+            return expression.SourceValue.Equals(SourceValue) && expression.Type == Type; 
         }
         return false;
+    }
+
+    public override void EnumerateSubNodes(Action<AbstractValue> callback) {
+        callback(SourceValue);
     }
 }

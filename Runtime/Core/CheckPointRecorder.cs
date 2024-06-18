@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.Runtime.Core {
@@ -179,6 +180,8 @@ namespace IntelliVerilog.Core.Runtime.Core {
 
             m_CaptureContext(&registerData);
             if (checkPoint.Initialized) {
+                if (Monitor.IsEntered(m_SyncRoot)) Monitor.Exit(m_SyncRoot);
+
                 var gcHelper = IntelliVerilogLocator.GetService<IGCHelpers>()!;
                 gcHelper.ResumeCollector();
 
@@ -225,7 +228,9 @@ namespace IntelliVerilog.Core.Runtime.Core {
                 return;
             }
 
-            lock (m_SyncRoot) {
+
+            Monitor.Enter(m_SyncRoot); {
+                
                 var gcHelper = IntelliVerilogLocator.GetService<IGCHelpers>()!;
 
                 gcHelper.PauseCollector();
@@ -261,6 +266,7 @@ namespace IntelliVerilog.Core.Runtime.Core {
         }
         protected static bool CheckAndPinObject(IGCHelpers gcHelper, nint address, bool isPinned = true) {
             if (gcHelper.IsHeapPointer(address)) {
+                if (!IsAcceessibleMemory(address)) return false;
                 var pMT = *(nint*)address;
 
                 if (!IsAcceessibleMemory(pMT)) return false;

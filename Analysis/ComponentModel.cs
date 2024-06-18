@@ -6,7 +6,9 @@ using IntelliVerilog.Core.Utils;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Text;
 
 namespace IntelliVerilog.Core.Analysis {
@@ -161,6 +163,13 @@ namespace IntelliVerilog.Core.Analysis {
             UntypedType = type;
         }
     }
+    public class IoPortAuxInfo {
+        public IUntypedConstructionPort InternalPort { get; }
+        public HashSet<IUntypedConstructionPort> CombLogicDependencyMap { get; } = new();
+        public IoPortAuxInfo(IUntypedConstructionPort port) {
+            InternalPort = port;
+        }
+    }
     public abstract class ComponentModel {
         protected object[] m_Parameters;
         protected Type m_ComponentType;
@@ -168,9 +177,12 @@ namespace IntelliVerilog.Core.Analysis {
         protected HashSet<ComponentBase> m_SubComponents = new();
         public BehaviorContext? Behavior { get; set; } 
         
-        public abstract IReadOnlyDictionary<IUntypedConstructionPort, IoPortInternalInfo> IoPortShape { get; } 
+
+        public abstract IReadOnlyDictionary<IAssignableValue, AssignmentInfo> GenericAssignments { get; }
+        public abstract IReadOnlyDictionary<IUntypedConstructionPort, IoPortAuxInfo> IoPortShape { get; } 
         public abstract IReadOnlyCollection<INamedStageExpression> IntermediateValues { get; }
         public abstract IReadOnlyDictionary<string, IntermediateValueDesc> IntermediateValueCount { get; }
+        public abstract IReadOnlySet<RegisterDesc> Registers { get; }
         public ComponentBase ReferenceModule => m_ComponentObject;
         public abstract IReadOnlyDictionary<string, SubComponentDesc> SubComponents { get; }
         public ComponentModel(Type componentType, ComponentBase componentObject, object[] instParameters) {
@@ -190,6 +202,7 @@ namespace IntelliVerilog.Core.Analysis {
     public class IoPortInternalInfo : List<IoPortInternalAssignment> {
         public Bitset BitsAssigned { get; set; }
         public IUntypedConstructionPort IoComponentDecl { get; }
+        public bool PromotedRegister { get; set; } = false;
         public IoPortInternalInfo(IUntypedConstructionPort declPort) {
             IoComponentDecl = declPort;
             BitsAssigned = new((int)declPort.UntypedType.WidthBits);
@@ -221,6 +234,10 @@ namespace IntelliVerilog.Core.Analysis {
         public override bool Equals(AbstractValue? other) {
             throw new NotImplementedException();
         }
+
+        public override void EnumerateSubNodes(Action<AbstractValue> callback) {
+            callback(InternalValue);
+        }
     }
     public class IoPortExternalInfo : IoPortInternalInfo {
         public ComponentBase ComponentObject { get; }
@@ -230,7 +247,6 @@ namespace IntelliVerilog.Core.Analysis {
     }
     public class SubComponentDesc : List<ComponentBase>{
         public string InstanceName { get; }
-        public List<IoPortExternalInfo> ExternalWires { get; } = new();
         public SubComponentDesc(string instanceName) {
             InstanceName = instanceName;
         }
@@ -261,32 +277,126 @@ namespace IntelliVerilog.Core.Analysis {
             Add(assignment);
         }
     }
-    public class RegisterDesc {
+    public class RegisterDesc:IAssignableValue {
+        protected RegisterValue? m_RightValueCache;
         public DataType UntypedType { get; }
-        public string Name { get; } = "";
-        public RegisterDesc(DataType type) {
+        public bool IsCombination { get; }
+        public RegisterValue RVaule {
+            get {
+                if(m_RightValueCache == null) {
+                    m_RightValueCache = new(this);
+                }
+                return m_RightValueCache;
+            }
+        }
+        public Func<string> Name { get; set; } = () => "<unnamed>";
+        public RegisterDesc(DataType type, bool isComb = false) {
             UntypedType = type;
+            IsCombination = isComb;
         }
     }
-    public interface IAssignableValue {
+    public class CombPseudoRegister : RegisterDesc {
+        public IAssignableValue BackAssignable { get; }
+        public CombPseudoRegister(IAssignableValue assignable) : base(assignable.UntypedType, true) {
+            BackAssignable = assignable;
+        }
+    }
+    public class RegisterValue : AbstractValue {
+        public RegisterValue(RegisterDesc baseRegister) : base(baseRegister.UntypedType) {
+            BaseRegister = baseRegister;
+        }
+
+        public RegisterDesc BaseRegister { get; }
+
+        public override void EnumerateSubNodes(Action<AbstractValue> callback) { }
+
+        public override bool Equals(AbstractValue? other) {
+            throw new NotImplementedException();
+        }
 
     }
+    public interface ILazyNamedObject {
+        Func<string> Name { get; set; }
+    }
+    public interface IAssignableValue: ILazyNamedObject {
+        DataType UntypedType { get; }
+        
+
+    }
+    public class LeftValueCombination : IAssignableValue {
+        public IAssignableValue[] SubValues { get; }
+        public DataType UntypedType { get; }
+        public Func<string> Name { get; set; } = () => "<unnamed>";
+
+        public LeftValueCombination(IAssignableValue[] subValues) {
+            var type = subValues.First().UntypedType;
+            if(subValues.Count(e=>e.UntypedType != type) > 0) {
+                throw new InvalidOperationException("Type mismatch at combination");
+            }
+
+            var totalBits = subValues.Sum(e => e.UntypedType.WidthBits);
+
+            UntypedType = type.CreateWithWidth((uint)totalBits);
+            SubValues = subValues;
+        }
+    }
+    public class AssignableLeftValueInfo {
+        public IAssignableValue LeftValue { get; }
+        public AssignableLeftValueInfo() {
+
+        }
+    }
+    public interface IBasicAssignmentTerm {
+        IAssignableValue UntypedLeftValue { get; }
+        AbstractValue RightValue { get; set; }
+        SpecifiedRange SelectedRange { get; }
+        BehaviorDesc ToBeahviorDesc(IAssignableValue? redirectedLeftValue);
+    }
+    public class AssignmentInfo : List<IBasicAssignmentTerm> {
+        public IAssignableValue UntypedLeftValue { get; }
+        public RegisterDesc? PromotedRegister { get; set; }
+        public AssignmentInfo(IAssignableValue leftValue) {
+            UntypedLeftValue = leftValue;
+        }
+    }
+    public class IoPortAssignmentInfo : AssignmentInfo {
+        public IUntypedConstructionPort PortLeftValue => (IUntypedConstructionPort)UntypedLeftValue;
+        public IoPortAssignmentInfo(IAssignableValue leftValue) : base(leftValue) {
+        }
+        public virtual void AssignPort(AbstractValue value, SpecifiedRange range) {
+            Add(new PrimaryAssignment(UntypedLeftValue, value, range, nint.Zero));
+        }
+    }
+
+    public class SubComponentPortAssignmentInfo : IoPortAssignmentInfo {
+        public ComponentBase SubComponent { get; }
+        public SubComponentPortAssignmentInfo(ComponentBase subComponent, IAssignableValue leftValue) : base(leftValue) {
+            SubComponent = subComponent;
+        }
+    }
+    
     public class ComponentBuildingModel : ComponentModel {
-        protected Dictionary<IUntypedConstructionPort, IoPortInternalInfo> m_IoPortShape = new();
+        protected Dictionary<IUntypedConstructionPort, IoPortAuxInfo> m_IoPortShape = new();
         protected Dictionary<string, IntermediateValueDesc> m_ImmValueCounter = new();
         protected List<INamedStageExpression> m_StagedValues = new();
         protected Dictionary<string, SubComponentDesc> m_SubComponentObjects = new();
-        protected List<RegisterDesc> m_Registers = new();
-        public override IReadOnlyDictionary<IUntypedConstructionPort, IoPortInternalInfo> IoPortShape => m_IoPortShape;
+        protected HashSet<RegisterDesc> m_Registers = new();
+
+        protected Dictionary<IAssignableValue, AssignmentInfo> m_GenericAssignments = new();
+
+        public override IReadOnlySet<RegisterDesc> Registers => m_Registers;
+        public override IReadOnlyDictionary<IUntypedConstructionPort, IoPortAuxInfo> IoPortShape => m_IoPortShape;
         public override IReadOnlyDictionary<string, SubComponentDesc> SubComponents => m_SubComponentObjects;
         public override IReadOnlyCollection<INamedStageExpression> IntermediateValues => m_StagedValues;
         public override IReadOnlyDictionary<string, IntermediateValueDesc> IntermediateValueCount => m_ImmValueCounter;
 
+        public override IReadOnlyDictionary<IAssignableValue, AssignmentInfo> GenericAssignments => m_GenericAssignments;
+
         public ComponentBuildingModel(Type componentType, ComponentBase componentObject, object[] instParameters) : base(componentType, componentObject, instParameters) {
             
         }
-        protected Dictionary<IUntypedPort, Bitset> CheckLatch(IEnumerable<BehaviorDesc> descriptors, Dictionary<IUntypedPort, Bitset> assignmentInfo) {
-            var assignedPorts = new Dictionary<IUntypedPort, Bitset>();
+        protected Dictionary<IAssignableValue, Bitset> CheckLatch(IEnumerable<BehaviorDesc> descriptors, Dictionary<IAssignableValue, Bitset> assignmentInfo) {
+            var assignedPorts = new Dictionary<IAssignableValue, Bitset>();
 
             foreach (var i in descriptors) {
                 if(i is BranchDesc branch) {
@@ -311,7 +421,7 @@ namespace IntelliVerilog.Core.Analysis {
                 }
             }
             foreach (var i in descriptors) {
-                if (i is IPrimaryAssignment assignment) {
+                if (i is PrimaryAssignment assignment) {
                     if (assignedPorts.ContainsKey(assignment.LeftValue)) {
                         var bitset = assignedPorts[assignment.LeftValue];
                         bitset[assignment.SelectedRange] = BitRegionState.True;
@@ -324,76 +434,65 @@ namespace IntelliVerilog.Core.Analysis {
         public void ModelCheck() {
             var rootSet = new List<BehaviorDesc>();
             
-
-            Behavior.Root.EnumerateDesc(e => { 
-                if(e is IPrimaryAssignment primaryAssign) {
-                    if (!m_IoPortShape.ContainsKey(primaryAssign.LeftValue)) return;
-                    var portDesc = m_IoPortShape[primaryAssign.LeftValue];
-
-                    var intersectedAssignments = portDesc.Where(e => e.SelectionRange.IsIntersect(primaryAssign.SelectedRange)).ToArray();
-                    foreach(var i in intersectedAssignments) {
-                        portDesc.Remove(i);
-                        if (i.SelectionRange.Left > primaryAssign.SelectedRange.Left && i.SelectionRange.Right < primaryAssign.SelectedRange.Right) {
-                            var assignment = new PrimaryAssignment(i.InternalPort, i.Value, i.SelectionRange, nint.Zero);
-                            rootSet.Add(assignment);
-                            continue;
-                        }
-                        if (i.SelectionRange.Left < primaryAssign.SelectedRange.Left && i.SelectionRange.Right > primaryAssign.SelectedRange.Right) {
-                            // split required
-                            var leftPartValue = i.Value.GetBitSelection(0..(primaryAssign.SelectedRange.Left - i.SelectionRange.Left));
-                            var rightPartValue = i.Value.GetBitSelection((primaryAssign.SelectedRange.Right - i.SelectionRange.Left)..);
-                            var middlePartValue = i.Value.GetBitSelection((primaryAssign.SelectedRange.Left - i.SelectionRange.Left)..(primaryAssign.SelectedRange.Right - i.SelectionRange.Left));
-                            var leftPart = new IoPortInternalAssignment(i.InternalPort, leftPartValue, new(i.SelectionRange.Left, primaryAssign.SelectedRange.Left));
-                            var rightPart = new IoPortInternalAssignment(i.InternalPort, rightPartValue, new(primaryAssign.SelectedRange.Right, i.SelectionRange.Right));
-
-                            portDesc.Add(leftPart);
-                            portDesc.Add(rightPart);
-
-                            var assignment = new PrimaryAssignment(i.InternalPort, middlePartValue, primaryAssign.SelectedRange, nint.Zero);
-                            rootSet.Add(assignment);
-
-                            continue;
-                        }
-                        if(i.SelectionRange.Left == primaryAssign.SelectedRange.Left && i.SelectionRange.Right == primaryAssign.SelectedRange.Right) {
-                            var assignment = new PrimaryAssignment(i.InternalPort, i.Value, new(i.SelectionRange.Left, primaryAssign.SelectedRange.Right), nint.Zero);
-                            rootSet.Add(assignment);
-
-                            continue;
-                        }
-                        if(i.SelectionRange.Left >= primaryAssign.SelectedRange.Left) {
-                            var rightPartValue = i.Value.GetBitSelection((i.SelectionRange.Right - primaryAssign.SelectedRange.Left)..);
-                            var rightPart = new IoPortInternalAssignment(i.InternalPort, rightPartValue, new(primaryAssign.SelectedRange.Right, i.SelectionRange.Right));
-                            portDesc.Add(rightPart);
-
-                            var middlePartValue = i.Value.GetBitSelection(0..(i.SelectionRange.Left - primaryAssign.SelectedRange.Left));
-                            var assignment = new PrimaryAssignment(i.InternalPort, middlePartValue, new(i.SelectionRange.Left, primaryAssign.SelectedRange.Right), nint.Zero);
-                            rootSet.Add(assignment);
-
-                            continue;
-                        }
-                        if (i.SelectionRange.Right <= primaryAssign.SelectedRange.Right) {
-                            var leftPartValue = i.Value.GetBitSelection(0..(primaryAssign.SelectedRange.Left - i.SelectionRange.Left));
-                            var leftPart = new IoPortInternalAssignment(i.InternalPort, leftPartValue, new(i.SelectionRange.Left, primaryAssign.SelectedRange.Left));
-                            portDesc.Add(leftPart);
-
-                            var middlePartValue = i.Value.GetBitSelection((primaryAssign.SelectedRange.Left - i.SelectionRange.Left)..);
-                            var assignment = new PrimaryAssignment(i.InternalPort, middlePartValue, new(i.SelectionRange.Left, primaryAssign.SelectedRange.Right), nint.Zero);
-                            rootSet.Add(assignment);
-
-                            continue;
-                        }
-
+            Behavior.Root.EnumerateDesc((e,branchPath) => { 
+                if(e is PrimaryAssignment primaryAssign) {
+                    if (!m_GenericAssignments.ContainsKey(primaryAssign.UntypedLeftValue)) {
+                        m_GenericAssignments.Add(primaryAssign.UntypedLeftValue, new (primaryAssign.UntypedLeftValue));
                     }
+
+                    var assignmentInfo = m_GenericAssignments[primaryAssign.UntypedLeftValue];
+
+                    if (assignmentInfo.PromotedRegister == null) {
+                        m_Registers.Add(assignmentInfo.PromotedRegister = new CombPseudoRegister(assignmentInfo.UntypedLeftValue));
+                        var oldLeftValue = primaryAssign.UntypedLeftValue;
+                        assignmentInfo.PromotedRegister.Name = () => $"_cbr_{oldLeftValue.Name()}";
+
+                        if(oldLeftValue is IUntypedConstructionPort internalPort) {
+                            if (m_IoPortShape.ContainsKey(internalPort)) {
+                                var ioAuxInfo = m_IoPortShape[internalPort];
+                                foreach (var k in branchPath) {
+                                    TrackOutputDependencyList(k.Condition.Condition, ioAuxInfo);
+                                }
+                            }
+                        }
+
+                        foreach (var i in assignmentInfo) {
+                            var subAssignment = new PrimaryAssignment(assignmentInfo.PromotedRegister, i.RightValue, i.SelectedRange, nint.Zero);
+
+                            rootSet.Add(subAssignment);
+                        }
+
+                        assignmentInfo.Clear();
+
+                        var totalBits = oldLeftValue.UntypedType.WidthBits;
+                        assignmentInfo.Add(new PrimaryAssignment(oldLeftValue, assignmentInfo.PromotedRegister.RVaule, new(.., (int)totalBits), nint.Zero));
+                    }
+                    primaryAssign.LeftValue = assignmentInfo.PromotedRegister;
                 }
             });
             Behavior.Root.FalseBranch.InsertRange(0, rootSet);
 
-            var combAlwaysPortList = new Dictionary<IUntypedPort, Bitset>();
+            Behavior.Root.EnumerateDesc((e, branchPath) => {
+                if(e is PrimaryAssignment assignment) {
+                    if(assignment.LeftValue is CombPseudoRegister pseudoRegister) {
+                        if(pseudoRegister.BackAssignable is IUntypedConstructionPort port) {
+                            if (m_IoPortShape.ContainsKey(port)) {
+                                var ioPortAux = m_IoPortShape[port];
 
-            Behavior.Root.EnumerateDesc(e => { 
+                                TrackOutputDependencyList(assignment.RightValue, ioPortAux);
+                            }
+                        }
+                        
+                    }
+                }
+            });
+
+            var combAlwaysPortList = new Dictionary<IAssignableValue, Bitset>();
+
+            Behavior.Root.EnumerateDesc((e,_)=> { 
                 if(e is PrimaryAssignment assignment) {
                     if (!combAlwaysPortList.ContainsKey(assignment.LeftValue)) {
-                        var totalBits = ((IUntypedConstructionPort)assignment.LeftValue).UntypedType.WidthBits;
+                        var totalBits = (assignment.LeftValue).UntypedType.WidthBits;
                         combAlwaysPortList.Add(assignment.LeftValue, new((int)totalBits));
                     }
                     combAlwaysPortList[assignment.LeftValue][assignment.SelectedRange] = BitRegionState.True;
@@ -401,14 +500,16 @@ namespace IntelliVerilog.Core.Analysis {
             });
 
             var checkResult = CheckLatch(Behavior.Root.FalseBranch, combAlwaysPortList);
-            foreach(var (k,v) in combAlwaysPortList) {
+            foreach (var (k, v) in combAlwaysPortList) {
                 var fullyAssigned = checkResult[k];
                 if (!v.Equals(fullyAssigned)) {
                     throw new Exception("Latch detected");
                 }
             }
         }
-        
+        protected void CheckLogicCycle() {
+
+        }
         
         public void RegisterIoPorts(IUntypedPort port) {
             InternalRegisterIoPorts(port);
@@ -427,7 +528,7 @@ namespace IntelliVerilog.Core.Analysis {
             }
             if(port is IoComponent) {
                 if(port is IUntypedConstructionPort constructedInternalPort) {
-                    m_IoPortShape.Add(constructedInternalPort, new(constructedInternalPort));
+                    m_IoPortShape.Add(constructedInternalPort, new IoPortAuxInfo(constructedInternalPort));
                 } else {
                     throw new NotSupportedException();
                 }
@@ -436,11 +537,29 @@ namespace IntelliVerilog.Core.Analysis {
             }
             throw new NotSupportedException();
         }
+        protected void TrackOutputDependencyList(AbstractValue value, IoPortAuxInfo info, Action<AbstractValue>? callback = null) {
+            callback ??= e => {
+                TrackOutputDependencyList(e, info, callback);
+            };
+            if (value is IUntypedIoRightValueWrapper wrapper) {
+                info.CombLogicDependencyMap.Add((IUntypedConstructionPort)wrapper.UntypedComponent);
+            }
+            value.EnumerateSubNodes(callback);
+        }
         protected void AssignOutputExpression(IoComponent internalLeftValue, AbstractValue rightValue, SpecifiedRange range){
-            if(internalLeftValue is IUntypedConstructionPort internalOutput) {
-                var descriptor = m_IoPortShape[internalOutput];
+            if(internalLeftValue is IAssignableValue internalOutput) {
+                if (!m_GenericAssignments.ContainsKey(internalOutput)) {
+                    m_GenericAssignments.Add(internalOutput, new IoPortAssignmentInfo(internalOutput));
+                }
 
-                descriptor.AssignPort(rightValue, range);
+                var ioAssign = (IoPortAssignmentInfo)m_GenericAssignments[internalOutput];
+                ioAssign.AssignPort(rightValue, range);
+
+                var ioAuxInfo = m_IoPortShape[(IUntypedConstructionPort)internalLeftValue];
+
+                TrackOutputDependencyList(rightValue, ioAuxInfo);
+            } else {
+                throw new NotImplementedException();
             }
         }
  
@@ -467,13 +586,14 @@ namespace IntelliVerilog.Core.Analysis {
                 var oldGroup = m_SubComponentObjects[subComponent.CatagoryName];
                 oldGroup.Remove(subComponent);
 
-                newGroup.ExternalWires.AddRange(oldGroup.ExternalWires.Where(e => e.ComponentObject == subComponent));
-                oldGroup.ExternalWires.RemoveAll(e => e.ComponentObject == subComponent);
-
                 if (oldGroup.Count == 0) m_SubComponentObjects.Remove(oldGroup.InstanceName);
             }
 
             subComponent.CatagoryName = name;
+            subComponent.Name = () => {
+                var componentSet = m_SubComponentObjects[subComponent.CatagoryName];
+                return $"{componentSet.InstanceName}_{componentSet.IndexOf(subComponent)}";
+            };
         }
         protected SubComponentDesc GetSubComponentDesc(ComponentBase subComponent) {
             if (!m_SubComponentObjects.ContainsKey(subComponent.CatagoryName)) {
@@ -483,14 +603,14 @@ namespace IntelliVerilog.Core.Analysis {
         }
 
 
-        public void AssignSubModuleConnections(IUntypedPort leftValue, IUntypedPort rightValue, Range range, nint returnAddress) {
+        public void AssignSubModuleConnections(IAssignableValue leftValue, IUntypedPort rightValue, Range range, nint returnAddress) {
             if(leftValue is IoBundle bundle) {
                 var ioAux = IoComponentProbableHelpers.QueryProbeAuxiliary(leftValue.GetType());
                 foreach (var i in ioAux.GetIoMembers(leftValue.GetType())) {
                     var newSlotValue = i.GetValue(rightValue);
                     if (newSlotValue == null) continue;
 
-                    var oldSlotValue = i.GetValue(leftValue);
+                    var oldSlotValue = (IAssignableValue)i.GetValue(leftValue);
 
                     AssignSubModuleConnections(oldSlotValue, newSlotValue, range, returnAddress);
                 }
@@ -503,22 +623,31 @@ namespace IntelliVerilog.Core.Analysis {
                         if (ioComponentLhs.Flags.HasFlag(GeneralizedPortFlags.ExternalPort)) { // ExternalInput
 
                             var leftExternalInput = (IUntypedConstructionPort)ioComponentLhs;
+                            var leftAssignable = (IAssignableValue)ioComponentLhs;
 
-                            if (rightValue is IExpressionAssignedIoType expression) {
-                                var subComponent = leftExternalInput.Component;
-                                var componentDesc = GetSubComponentDesc(subComponent);
-                                var wireSet = componentDesc.ExternalWires.Find(e => e.ComponentObject == subComponent && e.IoComponentDecl == leftExternalInput.InternalPort);
-                                if(wireSet == null) {
-                                    componentDesc.ExternalWires.Add(wireSet = new(subComponent, leftExternalInput.InternalPort));
-                                }
-                                var bits = (int)wireSet.IoComponentDecl.UntypedType.WidthBits;
-                                if (Behavior.IsInBranchContext) {
-                                    Behavior.NotifyComponentAssignment(returnAddress, wireSet, expression.UntypedExpression, new(range, bits));
-                                } else {
-                                    
-                                    wireSet.AssignPort(expression.UntypedExpression, new(range, bits));
-                                }
+                            var rightExpression = ResolveRightValue(rightValue);
+
+                            Debug.Assert(rightExpression != null);
+
+                            if (!m_GenericAssignments.ContainsKey(leftAssignable)) {
+                                m_GenericAssignments.Add(leftAssignable, new SubComponentPortAssignmentInfo(leftExternalInput.Component, leftAssignable));
                             }
+
+                            var wireSet = (SubComponentPortAssignmentInfo)m_GenericAssignments[leftAssignable];
+
+                            var bits = (int)wireSet.UntypedLeftValue.UntypedType.WidthBits;
+                            var specRange = new SpecifiedRange(range, bits);
+
+                            if (specRange.BitWidth != rightExpression.Type.WidthBits) {
+                                throw new InvalidOperationException("Bit width mismatch");
+                            }
+
+                            if (Behavior.IsInBranchContext) {
+                                Behavior.NotifyAssignment(returnAddress, wireSet.UntypedLeftValue, rightExpression, specRange);
+                            } else {
+                                wireSet.AssignPort(rightExpression, specRange);
+                            }
+
                             break;
                         }
                         if(ioComponentLhs.Flags.HasFlag(GeneralizedPortFlags.InternalPort)) { // InternalInput
@@ -534,11 +663,17 @@ namespace IntelliVerilog.Core.Analysis {
                             if (rightValue is IExpressionAssignedIoType expression) {
                                 if(expression.UntypedExpression is IInvertedOutput invertedOutput) {
                                     var bits = (int)invertedOutput.InternalOut.UntypedRValue.Type.WidthBits;
+                                    var specRange = new SpecifiedRange(invertedOutput.SelectedRange, bits);
+
+                                    if(specRange.BitWidth != ioComponentLhs.UntypedRValue.Type.WidthBits) {
+                                        throw new InvalidOperationException("Bit width mismatch");
+                                    }
+
                                     if (Behavior.IsInBranchContext) {
-                                        Behavior!.NotifyAssignment(returnAddress, invertedOutput.InternalOut, ioComponentLhs.UntypedRValue, new(invertedOutput.SelectedRange, bits));
+                                        Behavior!.NotifyAssignment(returnAddress, (IAssignableValue)invertedOutput.InternalOut, ioComponentLhs.UntypedRValue, specRange);
                                     } else {
                                         
-                                        AssignOutputExpression(invertedOutput.InternalOut, ioComponentLhs.UntypedRValue, new (invertedOutput.SelectedRange, bits));
+                                        AssignOutputExpression(invertedOutput.InternalOut, ioComponentLhs.UntypedRValue, specRange );
                                     }
                                     break;
                                 }
@@ -548,15 +683,25 @@ namespace IntelliVerilog.Core.Analysis {
                         }
                         if (ioComponentLhs.Flags.HasFlag(GeneralizedPortFlags.InternalPort)) { // InternalOutput
                             // assign outputs
-                            if(rightValue is IExpressionAssignedIoType expression) {
-                                var bits = (int)((IDataTypeSpecifiedPort)ioComponentLhs).UntypedType.WidthBits;
-                                if (Behavior.IsInBranchContext) {
-                                    Behavior!.NotifyAssignment(returnAddress, ioComponentLhs, expression.UntypedExpression, new(range, bits));
-                                } else {
-                                    
-                                    AssignOutputExpression(ioComponentLhs, expression.UntypedExpression, new(range, bits));
-                                }
+                            var rightExpression = ResolveRightValue(rightValue);
+
+                            Debug.Assert(rightExpression != null);
+
+
+                            var bits = (int)((IDataTypeSpecifiedPort)ioComponentLhs).UntypedType.WidthBits;
+                            var specRange = new SpecifiedRange(range, bits);
+
+                            if (specRange.BitWidth != rightExpression.Type.WidthBits) {
+                                throw new InvalidOperationException("Bit width mismatch");
                             }
+
+                            if (Behavior.IsInBranchContext) {
+                                Behavior!.NotifyAssignment(returnAddress, (IAssignableValue)ioComponentLhs, rightExpression, specRange);
+                            } else {
+
+                                AssignOutputExpression(ioComponentLhs, rightExpression, specRange);
+                            }
+
                             break;
                         }
 
@@ -566,11 +711,23 @@ namespace IntelliVerilog.Core.Analysis {
 
             }
         }
-
+        protected AbstractValue ResolveRightValue(IUntypedPort rightValue) {
+            if (rightValue is IExpressionAssignedIoType expression) {
+                return expression.UntypedExpression;
+            }
+            if (rightValue is IUntypedConstructionPort portLike) {
+                return portLike.UntypedRValue;
+            }
+            throw new NotImplementedException();
+        }
         public override IEnumerable<(AbstractValue assignValue, SpecifiedRange range)> QueryAssignedSubComponentIoValues(IUntypedConstructionPort declComponent, ComponentBase subModule) {
             var componentDesc = GetSubComponentDesc(subModule);
-            var wireSet = componentDesc.ExternalWires.Find(e => e.ComponentObject == subModule && e.IoComponentDecl == declComponent);
-            return wireSet.Select((e) => (e.Value, e.SelectionRange));
+            return m_GenericAssignments.Where((e) => {
+                if(e.Key is IUntypedConstructionPort port) {
+                    if (port.InternalPort == declComponent && port.Component == subModule) return true;
+                }
+                return false;
+            }).SelectMany(e=>e.Value).Select(e=>(e.RightValue, e.SelectedRange));
         }
     }
 

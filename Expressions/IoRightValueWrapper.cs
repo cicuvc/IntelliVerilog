@@ -1,5 +1,6 @@
 ﻿using IntelliVerilog.Core.DataTypes;
 using IntelliVerilog.Core.Expressions.Algebra;
+using System;
 
 namespace IntelliVerilog.Core.Expressions {
     public class IoRightValueWrapper<TData> : RightValue<TData>, IUntypedIoRightValueWrapper where TData : DataType, IDataType<TData> {
@@ -15,5 +16,7 @@ namespace IntelliVerilog.Core.Expressions {
             }
             return false;
         }
+
+        public override void EnumerateSubNodes(Action<AbstractValue> callback) { }
     }
 }

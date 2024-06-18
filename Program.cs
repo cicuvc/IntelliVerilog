@@ -39,35 +39,26 @@ public class PrimaryOp: BehaviorDesc {
     }
 }
 public class PrimaryExit: BehaviorDesc { }
-public interface IPrimaryAssignment {
-    IUntypedConstructionPort LeftValue { get; }
-    AbstractValue RightValue { get; set; }
-    SpecifiedRange SelectedRange { get; set; }
-}
-public class PrimaryAssignment : PrimaryOp, IPrimaryAssignment {
-    public IUntypedConstructionPort LeftValue { get; }
+
+public class PrimaryAssignment : PrimaryOp,IBasicAssignmentTerm {
+    public IAssignableValue LeftValue { get; set; }
     public AbstractValue RightValue { get; set; }
     public SpecifiedRange SelectedRange { get; set; }
-    public PrimaryAssignment(IUntypedConstructionPort leftValue, AbstractValue rightValue, SpecifiedRange range, nint returnAddress) : base(returnAddress) {
+
+    public IAssignableValue UntypedLeftValue => (IAssignableValue)LeftValue;
+
+    public PrimaryAssignment(IAssignableValue leftValue, AbstractValue rightValue, SpecifiedRange range, nint returnAddress) : base(returnAddress) {
         LeftValue = leftValue;
         RightValue = rightValue;
         SelectedRange = range;
     }
-}
-public class SubComponentAssignment: PrimaryOp, IPrimaryAssignment {
-    public SubComponentAssignment(nint returnAddress, IoPortExternalInfo portInfo, AbstractValue rightValue, SpecifiedRange selRange) : base(returnAddress) {
-        PortInfo = portInfo;
-        RightValue = rightValue;
-        SelectedRange = selRange;
+
+    public BehaviorDesc ToBeahviorDesc(IAssignableValue? redirectedLeftValue) {
+        if (redirectedLeftValue == null) return this;
+        return new PrimaryAssignment(redirectedLeftValue, RightValue, SelectedRange, nint.Zero);
     }
-
-    public IoPortExternalInfo PortInfo { get; }
-    public AbstractValue RightValue { get; set; }
-    public SpecifiedRange SelectedRange { get; set; }
-
-    public IUntypedConstructionPort LeftValue => PortInfo.IoComponentDecl;
-
 }
+
 public class PrimaryCondEval : PrimaryOp {
     public AbstractValue Condition { get; }
     public CheckPoint<bool>? CheckPoint { get; set; }
@@ -90,11 +81,17 @@ public class BranchDesc: BehaviorDesc {
     public BranchDesc(PrimaryCondEval condition) {
         Condition = condition;
     }
-    public void EnumerateDesc(Action<BehaviorDesc> callback) {
-        foreach(var i in TrueBranch.Concat(FalseBranch)) {
-            if (i is BranchDesc branch) branch.EnumerateDesc(callback);
-            else callback(i);
+    public void EnumerateDesc(Action<BehaviorDesc, List<BranchDesc>> callback, List<BranchDesc>? branchPath = null) {
+        branchPath ??= new();
+
+        if(Condition != null) branchPath.Add(this);
+
+        foreach (var i in TrueBranch.Concat(FalseBranch)) {
+            if (i is BranchDesc branch) branch.EnumerateDesc(callback, branchPath);
+            else callback(i, branchPath);
         }
+
+        if (Condition != null) branchPath.RemoveLast();
     }
 }
 public static class ListExtensions {
@@ -187,9 +184,11 @@ public class BehaviorContext {
                 currentContext.CurrentList.Add(desc.TrueBranch[i]);
             }
             desc.TrueBranch.RemoveRange(desc.FirstMergeOpIndex, desc.TrueBranch.Count - desc.FirstMergeOpIndex);
+
+            ProcessBranchMerge();
         }
     }
-    public void NotifyAssignment(nint returnAddress, IUntypedPort leftValue, AbstractValue rightValue, SpecifiedRange range) {
+    public void NotifyAssignment(nint returnAddress, IAssignableValue leftValue, AbstractValue rightValue, SpecifiedRange range) {
         if (UnwindBranches(e => {
             if (e is PrimaryAssignment assignment) {
                 return assignment.ReturnAddress == returnAddress && 
@@ -201,22 +200,7 @@ public class BehaviorContext {
         })) {
             ProcessBranchMerge();
         } else {
-            m_ActiveBranch.Last().CurrentList.Add(new PrimaryAssignment((IUntypedConstructionPort)leftValue, rightValue, range, returnAddress));
-        }
-    }
-    public void NotifyComponentAssignment(nint returnAddress, IoPortExternalInfo leftValue, AbstractValue rightValue, SpecifiedRange range) {
-        if (UnwindBranches(e => {
-            if (e is SubComponentAssignment assignment) {
-                return assignment.ReturnAddress == returnAddress && 
-                    assignment.PortInfo == leftValue &&
-                    assignment.RightValue.Equals(rightValue) &&
-                    assignment.SelectedRange.Equals(range);
-            }
-            return false;
-        })) {
-            ProcessBranchMerge();
-        } else {
-            m_ActiveBranch.Last().CurrentList.Add(new SubComponentAssignment(returnAddress, leftValue, rightValue, range));
+            m_ActiveBranch.Last().CurrentList.Add(new PrimaryAssignment(leftValue, rightValue, range, returnAddress));
         }
     }
 }

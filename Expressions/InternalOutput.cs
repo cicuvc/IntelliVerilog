@@ -2,16 +2,23 @@
 using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.DataTypes;
 using System;
+using System.Linq;
 using System.Reflection;
 
 namespace IntelliVerilog.Core.Expressions {
-    public class InternalOutput<TData> : TypeSpecifiedOutput<TData>, IUntypedConstructionPort where TData : DataType, IDataType<TData> {
-
+    public class InternalOutput<TData> : TypeSpecifiedOutput<TData>, IUntypedConstructionPort, IAssignableValue where TData : DataType, IDataType<TData> {
+        public Func<string> Name { get; set; }
         public InternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member) : base(dataType) {
             PortMember = member; ;
             Parent = parent;
             Component = root;
             Creator = creator;
+            Name = GetDefaultName;
+        }
+        public string GetDefaultName() {
+            var path = Location;
+            var portName = $"{string.Join('_', path.Path.Select(e => e.Name))}_{path.Name}";
+            return portName;
         }
         public unsafe override RightValue<Bool> this[int index] {
             get {

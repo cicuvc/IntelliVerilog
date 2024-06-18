@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 namespace IntelliVerilog.Core.Expressions.Algebra {
 
     public interface IAlg {
-
     }
     public interface IAlg<T>: IAlg where T:DataType{
         RightValue<T> AddExpression(RightValue<T> lhs, RightValue<T> rhs);
@@ -19,8 +18,7 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
         RightValue<T> AndExpression(RightValue<T> lhs, RightValue<T> rhs);
         RightValue<T> OrExpression(RightValue<T> lhs, RightValue<T> rhs);
         RightValue<T> NotExpression(RightValue<T> lhs);
-        RightValue<T> GetSelectionValue(RightValue<T> lhs, Range range);
-        AbstractValue GetCombinationValue(AbstractValue[] expressions);
+
         void SetSelectionValue(RightValue<T> lhs, int index, RightValue<T> value);
         void SetSelectionValue(RightValue<T> lhs, Range range, RightValue<T> value);
         bool BoolCast(RightValue<T> lhs);

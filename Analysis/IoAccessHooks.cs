@@ -34,7 +34,7 @@ namespace IntelliVerilog.Core.Analysis {
 
             if (currentModel == null || (oldValue == null)) return true;
 
-            currentModel.AssignSubModuleConnections(oldValue, newValue, Range.All, returnAddress);
+            currentModel.AssignSubModuleConnections((IAssignableValue)oldValue, newValue, Range.All, returnAddress);
 
             return !(oldValue is IoBundle);
         }
@@ -88,7 +88,7 @@ namespace IntelliVerilog.Core.Analysis {
                 var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
                 var returnAddress = returnTracker.TrackReturnAddress(newValue, paramIndex : 3);
 
-                buildingModel.AssignSubModuleConnections(oldValue, newValue, Range.All, returnAddress);
+                buildingModel.AssignSubModuleConnections((IAssignableValue)oldValue, newValue, Range.All, returnAddress);
             } else {
                 fieldInfo.SetValue(boxed, newValue);
                 tuple = (TTuple)boxed;

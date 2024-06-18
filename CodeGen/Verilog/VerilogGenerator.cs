@@ -1,4 +1,5 @@
-﻿using IntelliVerilog.Core.Analysis;
+﻿using Iced.Intel;
+using IntelliVerilog.Core.Analysis;
 using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.Expressions;
 using IntelliVerilog.Core.Expressions.Algebra;
@@ -77,6 +78,41 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
     public abstract class VerilogValueDef: VerilogAstNode { 
         public abstract string Name { get; set; }
     }
+    public class VerilogRegisterDef : VerilogValueDef {
+        protected VerilogPureIdentifier? m_IdentifierCache = null;
+        public RegisterDesc RegisterInfo { get; }
+        public override string Name { get; set; }
+        public uint Width { get; set; }
+        public int[] Shape { get; set; }
+        public VerilogPureIdentifier Identifier {
+            get {
+                if (m_IdentifierCache == null) m_IdentifierCache = new(Name);
+                return m_IdentifierCache;
+            }
+        }
+
+        public override bool NoLineEnd => false;
+
+        public VerilogRegisterDef(RegisterDesc register , string name, uint width, int[] shape) {
+            RegisterInfo = register;
+            Name = name;
+            Width = width;
+            Shape = shape;
+        }
+        public override void GenerateCode(VerilogGenerationContext context) {
+            if (Width > 1) {
+                context.AppendFormat("reg[{0}:0] ", Width - 1);
+            } else {
+                context.Append("reg ");
+            }
+
+            context.Append(Name);
+
+            foreach (var i in Shape) {
+                context.AppendFormat("[{0}:0]", i - 1);
+            }
+        }
+    }
     public class VerilogWireDef : VerilogValueDef {
         protected VerilogPureIdentifier? m_IdentifierCache = null;
         public override string Name { get; set; }
@@ -133,6 +169,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
     }
     public class VerilogModule : VerilogAstNode {
         public List<VerilogIoDecl> IoPorts { get; set; } = new();
+        public List<VerilogRegisterDef> Registers { get; } = new();
         public Dictionary<IoComponent, VerilogAstNode> SubModuleOutputMap { get; } = new();
         public Module BackModule { get; }
         public List<VerilogAstNode> Contents { get; } = new();
@@ -242,11 +279,11 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         }
     }
     public class VerilogRangeSelection :VerilogAstNode{
-        public VerilogValueDef BaseValue { get; }
+        public VerilogAstNode BaseValue { get; }
         public SpecifiedRange SelectedRange { get; set; }
         public int TotalBits { get; }
         public override bool NoLineEnd => false;
-        public VerilogRangeSelection(VerilogValueDef baseValue, SpecifiedRange range, int totalBits) {
+        public VerilogRangeSelection(VerilogAstNode baseValue, SpecifiedRange range, int totalBits) {
             BaseValue = baseValue;
             SelectedRange = range;
             TotalBits = totalBits;
@@ -295,6 +332,22 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
         public override string Operator => " & ";
     }
+    public class VerilogConst : VerilogAstNode {
+        public decimal Value { get; }
+        public int BitWidth { get; }
+
+        public override bool NoLineEnd => false;
+
+        public VerilogConst(int bits, decimal value) {
+            BitWidth = bits;
+            Value = value;
+        }
+
+        public override void GenerateCode(VerilogGenerationContext context) {
+            // TODO: Fix minus number
+            context.AppendFormat("{0}'d{1}", BitWidth, Value);
+        }
+    }
     public class VerilogCombinationExpression : VerilogAstNode {
         public VerilogAstNode[] Values { get; }
         public override bool NoLineEnd => false;
@@ -332,7 +385,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 }
             }
             if(FalseBranches.Count != 0) {
-                context.Append("end else begin");
+                context.AppendLine("end else begin");
 
                 using (context.BeginIndent()) {
                     foreach (var i in FalseBranches) {
@@ -381,14 +434,10 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 var lhs = ConvertExpressions(unaryExpression.UntypedValue, model, module);
 
                 var valueType = value.GetType();
-                if (valueType.IsConstructedGenericType && valueType.GetGenericTypeDefinition() == typeof(CastExpression<,>)) {
+                if (valueType.IsConstructedGenericType && valueType.GetGenericTypeDefinition() == typeof(CastExpression<>)) {
                     return lhs;
                 }
 
-                if(value is UIntBitsSelectionExpression bitSelection) {
-                    var bits = (int)bitSelection.BaseExpression.Type.WidthBits;
-                    return new VerilogRangeSelection((VerilogValueDef)lhs, new(bitSelection.SelectedRange,bits), (int)unaryExpression.UntypedValue.Type.WidthBits);
-                }
             }
             if(value is IUntypedIoRightValueWrapper rightValue) {
                 var ioComponent = rightValue.UntypedComponent;
@@ -414,6 +463,21 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
                 return selection;
             }
+            if(value is UIntLiteral literal) {
+                return new VerilogConst((int)literal.Type.WidthBits, literal.Value);
+            }
+            if(value is RegisterValue registerValue) {
+                var register = module.Registers.Find(e => e.RegisterInfo == registerValue.BaseRegister);
+                Debug.Assert(register != null);
+
+                return register.Identifier;
+            }
+            if(value is GeneralBitsSelectionExpression selectionExpression) {
+                var baseExpression = ConvertExpressions(selectionExpression.BaseExpression, model, module);
+                var selection = new VerilogRangeSelection(baseExpression, selectionExpression.SelectedRange, (int)selectionExpression.BaseExpression.Type.WidthBits);
+
+                return selection;
+            }
             throw new NotImplementedException();
         }
         protected VerilogModule ConvertModuleAst(Module module) {
@@ -421,7 +485,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
             var componentModel = module.InternalModel;
 
-            foreach(var (portInfo, internalData) in componentModel.IoPortShape) {
+            foreach(var (portInfo, portAux) in componentModel.IoPortShape) {
                 var path = portInfo.Location;
                 var portName = $"{string.Join('_', path.Path.Select(e=>e.Name))}_{path.Name}";
                 var portType = portInfo.Direction switch { 
@@ -431,7 +495,9 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     _ => throw new NotImplementedException()
                 };
 
-                moduleAst.IoPorts.Add(new((IoComponent)portInfo,portName, portType, portInfo.UntypedType.WidthBits, false));
+                var promotedRegister = false;
+                
+                moduleAst.IoPorts.Add(new((IoComponent)portInfo,portName, portType, portInfo.UntypedType.WidthBits, promotedRegister));
             }
 
 
@@ -441,10 +507,16 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
             moduleAst.Contents.Add(new VerilogEmptyLine());
 
+            foreach(var i in componentModel.Registers) {
+                var registerDef = new VerilogRegisterDef(i, i.Name(), i.UntypedType.WidthBits, Array.Empty<int>());
+                moduleAst.Registers.Add(registerDef);
+                moduleAst.Contents.Add(registerDef);
+            }
+
             foreach(var (instName, instGroup) in componentModel.SubComponents) {
                 var subModel = instGroup[0].InternalModel;
 
-                foreach (var (portInfo, internalData) in subModel.IoPortShape) {
+                foreach (var (portInfo, portAux) in subModel.IoPortShape) {
                     if(portInfo.Direction == IoPortDirection.Output) {
                         var path = portInfo.Location;
                         var portName = $"{instName}_{string.Join('_', path.Path.Select(e=>e.Name))}_{path.Name}";
@@ -489,13 +561,15 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
             foreach (var i in moduleAst.IoPorts) {
                 var identifier = new VerilogPureIdentifier(i.Name);
-                var portDecl = (IUntypedConstructionPort)i.DeclIoComponent;
-                var outputAssignments = componentModel.IoPortShape[portDecl];
+                if(i.DeclIoComponent is IAssignableValue portDecl) {
+                    if (!componentModel.GenericAssignments.ContainsKey(portDecl)) continue;
+                    var outputAssignments = componentModel.GenericAssignments[portDecl];
 
-                foreach(var (value, range) in outputAssignments) {
-                    var selection = new VerilogRangeSelection(identifier, range, (int)portDecl.UntypedType.WidthBits);
-                    var expr = ConvertExpressions(value, componentModel, moduleAst);
-                    moduleAst.Contents.Add(new VeriloAssignment(selection, expr));
+                    foreach (var j in outputAssignments) {
+                        var selection = new VerilogRangeSelection(identifier, j.SelectedRange, (int)portDecl.UntypedType.WidthBits);
+                        var expr = ConvertExpressions(j.RightValue, componentModel, moduleAst);
+                        moduleAst.Contents.Add(new VeriloAssignment(selection, expr));
+                    }
                 }
             }
 
@@ -505,9 +579,9 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 for(var j=0;j< instGroup.Count; j++) {
                     if (instGroup[j] is Module subModule) {
                         var subModel = subModule.InternalModel;
-                        var modelInst = new ModuleInstDecl(subModule,$"{instName}_{j}");
+                        var modelInst = new ModuleInstDecl(subModule, subModule.Name());
 
-                        foreach (var (portInfo, internalData) in subModel.IoPortShape) {
+                        foreach (var (portInfo, portAux) in subModel.IoPortShape) {
                             var path = portInfo.Location;
                             var portName = $"{string.Join('_', path.Path.Select(e => e.Name))}_{path.Name}";
                             if (portInfo.Direction == IoPortDirection.Output) {
@@ -556,14 +630,33 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     return (VerilogAstNode)ifClause;
                 }
                 if(e is PrimaryAssignment assignment) {
-                    var port = moduleAst.IoPorts.Find(e => e.DeclIoComponent == assignment.LeftValue);
+                    var leftValue = ResolveLeftValueRef(assignment.UntypedLeftValue, moduleAst);
+
+                    var noBlocking = false;
+
                     var value = ConvertExpressions(assignment.RightValue, compModel, moduleAst);
-                    var assignmentNode = new VerilogInAlwaysAssignment(port.Identifier, value, false);
+                    var leftValueSelection = new VerilogRangeSelection(leftValue, assignment.SelectedRange, (int)assignment.LeftValue.UntypedType.WidthBits);
+                    var assignmentNode = new VerilogInAlwaysAssignment(leftValueSelection, value, noBlocking);
                     return (VerilogAstNode)assignmentNode;
                 }
                 throw new NotImplementedException();
             });
 
+        }
+        protected VerilogAstNode ResolveLeftValueRef(IAssignableValue leftValue, VerilogModule moduleAst) {
+            if(leftValue is IUntypedConstructionPort port) {
+                var portNode = moduleAst.IoPorts.Find(e => e.DeclIoComponent == port);
+
+                return portNode.Identifier;
+
+            }
+            if(leftValue is RegisterDesc register) {
+                var regNode = moduleAst.Registers.Find(e => e.RegisterInfo == register);
+
+                return regNode.Identifier;
+            }
+
+            throw new NotImplementedException();
         }
         public string GenerateModuleCode(Module module, VerilogGenerationConfiguration? configuration = null) {
             var context = new VerilogGenerationContext(configuration ?? new());

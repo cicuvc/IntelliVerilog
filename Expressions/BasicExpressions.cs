@@ -31,6 +31,10 @@ namespace IntelliVerilog.Core.Expressions {
             }
             return false;
         }
+        public override void EnumerateSubNodes(Action<AbstractValue> callback) {
+            callback(UntypedLeft);
+            callback(UntypedRight);
+        }
     }
     public abstract class UnaryExpression<TData> : RightValue<TData> where TData : DataType {
         public RightValue<TData> Left { get; }
@@ -44,6 +48,9 @@ namespace IntelliVerilog.Core.Expressions {
                 }
             }
             return false;
+        }
+        public override void EnumerateSubNodes(Action<AbstractValue> callback) {
+            callback(Left);
         }
     }
 }

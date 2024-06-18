@@ -16,5 +16,7 @@ namespace IntelliVerilog.Core.Expressions {
             }
             return false;
         }
+
+        public override void EnumerateSubNodes(Action<AbstractValue> callback) { }
     }
 }

@@ -3,11 +3,13 @@ using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.DataTypes;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 
 namespace IntelliVerilog.Core.Expressions {
     public class ExpressedInput<TData> : TypeSpecifiedInput<TData>, IExpressionAssignedIoType where TData : DataType, IDataType<TData> {
@@ -105,7 +107,7 @@ namespace IntelliVerilog.Core.Expressions {
         }
     }
 
-    public class ExternalInput<TData> : TypeSpecifiedInput<TData>, IUntypedConstructionPort  where TData : DataType, IDataType<TData> {
+    public class ExternalInput<TData> : TypeSpecifiedInput<TData>, IUntypedConstructionPort, IAssignableValue where TData : DataType, IDataType<TData> {
         public override GeneralizedPortFlags Flags =>
             GeneralizedPortFlags.WidthSpecified | GeneralizedPortFlags.SingleComponent |
             GeneralizedPortFlags.Placeholder | GeneralizedPortFlags.ExternalPort;
@@ -115,6 +117,7 @@ namespace IntelliVerilog.Core.Expressions {
             Component = root;
             Creator = creator;
             InternalPort = internalPort;
+            Name = GetDefaultName;
         }
         public unsafe override RightValue<Bool> this[int index] {
             get => throw new NotImplementedException();
@@ -143,7 +146,12 @@ namespace IntelliVerilog.Core.Expressions {
         public IUntypedDeclPort Creator { get; }
 
         public IUntypedConstructionPort InternalPort { get; }
-
+        public Func<string> Name { get; set; } 
+        public string GetDefaultName() {
+            var path = Location;
+            var portName = $"{Component.Name()}_{string.Join('_', path.Path.Select(e => e.Name))}_{path.Name}";
+            return portName;
+        }
         public unsafe override RightValue<TData> this[Range range] { 
             get => throw new NotImplementedException();
             set {
@@ -166,6 +174,7 @@ namespace IntelliVerilog.Core.Expressions {
             Parent = parent;
             Component = root;
             Creator = creator;
+
         }
         public override RightValue<Bool> this[int index] {
             get => RValue[index];

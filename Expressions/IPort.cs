@@ -39,7 +39,7 @@ namespace IntelliVerilog.Core.Expressions {
 
         IoPortPath Location { get; }
     }
-    public interface IUntypedConstructionPort: IUntypedPort, IDataTypeSpecifiedPort, IUntypedLocatedPort, IAssignableValue {
+    public interface IUntypedConstructionPort: IUntypedPort, IDataTypeSpecifiedPort, IUntypedLocatedPort {
         AbstractValue UntypedRValue { get; }
         IUntypedDeclPort Creator { get; }
         IUntypedConstructionPort InternalPort { get; }
