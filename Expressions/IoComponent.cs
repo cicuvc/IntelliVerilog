@@ -9,7 +9,8 @@ namespace IntelliVerilog.Core.Expressions {
         public abstract AbstractValue UntypedRValue { get; }
         public abstract IoPortDirection Direction { get; }
         public abstract GeneralizedPortFlags Flags { get; }
-        
+        public virtual Func<string> Name { get; set; } = () => "<unnamed port>";
+
         //public abstract void InitUnspecifiedLocated(IoBundle parent, ComponentBase root, IoMemberInfo member);
     }
     

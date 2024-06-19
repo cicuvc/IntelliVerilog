@@ -333,6 +333,31 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
         public override string Operator => " & ";
     }
+    public class VerilogAddExpression : VerilogBinaryOperator {
+        public VerilogAddExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " + ";
+    }
+    public class VerilogSubExpression : VerilogBinaryOperator {
+        public VerilogSubExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " - ";
+    }
+    public class VerilogMulExpression : VerilogBinaryOperator {
+        public VerilogMulExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " * ";
+    }
+    public class VerilogDivExpression : VerilogBinaryOperator {
+        public VerilogDivExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " / ";
+    }
+
     public class VerilogConst : VerilogAstNode {
         public decimal Value { get; }
         public int BitWidth { get; }
@@ -430,7 +455,21 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     return new VerilogAndExpression(lhs, rhs);
                 if (value is BoolOrExpression)
                     return new VerilogOrExpression(lhs, rhs);
+
+                if(value is UIntAddExpression) {
+                    return new VerilogAddExpression(lhs, rhs);
+                }
+                if (value is UIntSubExpression) {
+                    return new VerilogSubExpression(lhs, rhs);
+                }
+                if (value is UIntMulExpression) {
+                    return new VerilogMulExpression(lhs, rhs);
+                }
+                if (value is UIntDivExpression) {
+                    return new VerilogDivExpression(lhs, rhs);
+                }
             }
+
             if(value is IUntypedUnaryExpression unaryExpression) {
                 var lhs = ConvertExpressions(unaryExpression.UntypedValue, model, module);
 
@@ -584,6 +623,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     identifier = moduleAst.ExplicitWires[wireObject].Identifier;
                 }
                 if(wire is IUntypedConstructionPort port) {
+                    if (port.Component != module) continue;
                     if(port is IAssignableValue) {
                         totalBits = (int)port.UntypedType.WidthBits;
                         assignable = (IAssignableValue)port;

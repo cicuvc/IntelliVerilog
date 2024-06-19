@@ -387,11 +387,16 @@ namespace IntelliVerilog.Core.Analysis {
 
     }
     public interface IWireLike {
-
+        Func<string> Name { get; set; }
+    }
+    public record CombLogicDependency(IWireLike DependencyDestination, CombLogicDependency? Parent) {
+        
     }
     public class WireLikeAuxInfo {
         public IWireLike Wire { get; }
-        public HashSet<IWireLike> CombLogicDependencyMap { get; } = new();
+        public HashSet<CombLogicDependency> CombLogicDependencyMap { get; } = new();
+        public HashSet<WireLikeAuxInfo> CombLogicInvDependencyMap { get; } = new();
+        public int UnresolvedWires { get; set; }
         public WireLikeAuxInfo(IWireLike port) {
             Wire = port;
         }
@@ -531,11 +536,26 @@ namespace IntelliVerilog.Core.Analysis {
                     throw new Exception("Latch detected");
                 }
             }
-        }
-        protected void CheckLogicCycle() {
 
+            foreach(var (wire,wireAux) in m_WireLikeObjects) {
+                if(wire is Wire wireObject) {
+                    if (!m_GenericAssignments.ContainsKey(wireObject)) {
+                        throw new NullReferenceException($"Missing drive for {wireObject.Name()}");
+                    }
+                    var assignments = m_GenericAssignments[wireObject];
+                    var totalBits = (int)wireObject.UntypedType.WidthBits;
+                    var bitset = new Bitset(totalBits);
+
+                    foreach(var j in assignments) {
+                        bitset[j.SelectedRange] = BitRegionState.True;
+                    }
+                    if (bitset[new SpecifiedRange(0, totalBits)] != BitRegionState.True) {
+                        throw new NullReferenceException($"Incomplete drive for {wireObject.Name()}");
+                    }
+                }
+            }
         }
-        
+
         public void RegisterIoPorts(IUntypedPort port) {
             InternalRegisterIoPorts(port);
         }
@@ -571,13 +591,68 @@ namespace IntelliVerilog.Core.Analysis {
             }
             throw new NotSupportedException();
         }
+        protected void DependencyPropagation(CombLogicDependency dependency, WireLikeAuxInfo info) {
+            if (m_WireLikeObjects.ContainsKey(dependency.DependencyDestination)) {
+                var wireAux = m_WireLikeObjects[dependency.DependencyDestination];
+                foreach (var i in wireAux.CombLogicDependencyMap) {
+                    if (i.DependencyDestination == info.Wire) {
+                        throw new InvalidOperationException("Combination logic loop detected");
+                    }
+                    var dependencyInfo = new CombLogicDependency(i.DependencyDestination, dependency);
+
+                    if (!info.CombLogicDependencyMap.Contains(dependencyInfo)) {
+                        info.CombLogicDependencyMap.Add(dependencyInfo);
+
+                        DependencyPropagation(dependencyInfo, info);
+                    }
+                }
+            } else {
+                if(dependency.DependencyDestination is IUntypedConstructionPort externalPort) {
+                    var componentModel = externalPort.Component.InternalModel;
+                    var externalAux = componentModel.WireLikeObjects[externalPort.InternalPort];
+
+                    foreach(var i in externalAux.CombLogicDependencyMap) {
+                        if(i.DependencyDestination is IUntypedConstructionPort { Direction : IoPortDirection.Input } internalInput) {
+                            var inputExtenalPort = internalInput.Location.TraceValue(externalPort.Component);
+
+                            Debug.Assert(inputExtenalPort != null);
+
+                            if (inputExtenalPort == info.Wire) {
+                                throw new InvalidOperationException("Combination logic loop detected");
+                            }
+                            var dependencyInfo = new CombLogicDependency(inputExtenalPort, i);
+
+                            if (!info.CombLogicDependencyMap.Contains(dependencyInfo)) {
+                                info.CombLogicDependencyMap.Add(dependencyInfo);
+
+                                DependencyPropagation(dependencyInfo, info);
+                            }
+
+                        }
+                    }
+                }
+            }
+        }
         protected void TrackOutputDependencyList(AbstractValue value, WireLikeAuxInfo info, Action<AbstractValue>? callback = null) {
             callback ??= e => {
                 TrackOutputDependencyList(e, info, callback);
             };
+            var depInfo = default(CombLogicDependency);
             if (value is IUntypedIoRightValueWrapper wrapper) {
-                info.CombLogicDependencyMap.Add((IUntypedConstructionPort)wrapper.UntypedComponent);
+                depInfo = new CombLogicDependency((IUntypedConstructionPort)wrapper.UntypedComponent, null);
             }
+            if (value is IWireRightValueWrapper wireWrapper) {
+                depInfo = new CombLogicDependency(wireWrapper.UntyedWire, null);
+            }
+            if(depInfo != null) {
+                info.CombLogicDependencyMap.Add(depInfo);
+                if(depInfo.DependencyDestination == info.Wire) {
+                    throw new InvalidOperationException("Combination logic loop detected");
+
+                }
+                DependencyPropagation(depInfo, info);
+            }
+            
             value.EnumerateSubNodes(callback);
         }
         protected void AssignOutputExpression(IoComponent internalLeftValue, AbstractValue rightValue, SpecifiedRange range){
@@ -694,6 +769,10 @@ namespace IntelliVerilog.Core.Analysis {
                             if (!m_GenericAssignments.ContainsKey(leftAssignable)) {
                                 m_GenericAssignments.Add(leftAssignable, new SubComponentPortAssignmentInfo(leftExternalInput.Component, leftAssignable));
                             }
+                            var wireObject = (IWireLike)leftAssignable;
+                            if (!m_WireLikeObjects.ContainsKey(wireObject)) {
+                                m_WireLikeObjects.Add(wireObject, new WireLikeAuxInfo(wireObject));
+                            }
 
                             var wireSet = (SubComponentPortAssignmentInfo)m_GenericAssignments[leftAssignable];
 
@@ -709,6 +788,9 @@ namespace IntelliVerilog.Core.Analysis {
                             } else {
                                 wireSet.AssignPort(rightExpression, specRange);
                             }
+
+                            var ioAuxInfo = m_WireLikeObjects[wireObject];
+                            TrackOutputDependencyList(rightExpression, ioAuxInfo);
 
                             break;
                         }
