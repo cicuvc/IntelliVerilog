@@ -163,13 +163,7 @@ namespace IntelliVerilog.Core.Analysis {
             UntypedType = type;
         }
     }
-    public class IoPortAuxInfo {
-        public IUntypedConstructionPort InternalPort { get; }
-        public HashSet<IUntypedConstructionPort> CombLogicDependencyMap { get; } = new();
-        public IoPortAuxInfo(IUntypedConstructionPort port) {
-            InternalPort = port;
-        }
-    }
+
     public abstract class ComponentModel {
         protected object[] m_Parameters;
         protected Type m_ComponentType;
@@ -177,9 +171,9 @@ namespace IntelliVerilog.Core.Analysis {
         protected HashSet<ComponentBase> m_SubComponents = new();
         public BehaviorContext? Behavior { get; set; } 
         
-
+        public abstract IDictionary<IWireLike, WireLikeAuxInfo> WireLikeObjects { get; }
         public abstract IReadOnlyDictionary<IAssignableValue, AssignmentInfo> GenericAssignments { get; }
-        public abstract IReadOnlyDictionary<IUntypedConstructionPort, IoPortAuxInfo> IoPortShape { get; } 
+        public abstract IEnumerable<IUntypedConstructionPort> IoPortShape { get; } 
         public abstract IReadOnlyCollection<INamedStageExpression> IntermediateValues { get; }
         public abstract IReadOnlyDictionary<string, IntermediateValueDesc> IntermediateValueCount { get; }
         public abstract IReadOnlySet<RegisterDesc> Registers { get; }
@@ -367,6 +361,14 @@ namespace IntelliVerilog.Core.Analysis {
             Add(new PrimaryAssignment(UntypedLeftValue, value, range, nint.Zero));
         }
     }
+    public class WireAssignmentInfo : AssignmentInfo {
+        public Wire WireLeftValue => (Wire)UntypedLeftValue;
+        public WireAssignmentInfo(IAssignableValue leftValue) : base(leftValue) {
+        }
+        public virtual void AssignPort(AbstractValue value, SpecifiedRange range) {
+            Add(new PrimaryAssignment(UntypedLeftValue, value, range, nint.Zero));
+        }
+    }
 
     public class SubComponentPortAssignmentInfo : IoPortAssignmentInfo {
         public ComponentBase SubComponent { get; }
@@ -374,23 +376,46 @@ namespace IntelliVerilog.Core.Analysis {
             SubComponent = subComponent;
         }
     }
-    
+    public class HeapPointer {
+        protected IReferenceTraceObject m_Reference;
+        public ref IReferenceTraceObject Pointer => ref m_Reference;
+        public HeapPointer(IReferenceTraceObject objectRef) {
+            m_Reference = objectRef;
+        }
+    }
+    public interface IReferenceTraceObject {
+
+    }
+    public interface IWireLike {
+
+    }
+    public class WireLikeAuxInfo {
+        public IWireLike Wire { get; }
+        public HashSet<IWireLike> CombLogicDependencyMap { get; } = new();
+        public WireLikeAuxInfo(IWireLike port) {
+            Wire = port;
+        }
+    }
     public class ComponentBuildingModel : ComponentModel {
-        protected Dictionary<IUntypedConstructionPort, IoPortAuxInfo> m_IoPortShape = new();
+        protected List<IUntypedConstructionPort> m_IoPortShape = new();
         protected Dictionary<string, IntermediateValueDesc> m_ImmValueCounter = new();
         protected List<INamedStageExpression> m_StagedValues = new();
         protected Dictionary<string, SubComponentDesc> m_SubComponentObjects = new();
         protected HashSet<RegisterDesc> m_Registers = new();
-
         protected Dictionary<IAssignableValue, AssignmentInfo> m_GenericAssignments = new();
 
+        protected Dictionary<IWireLike, WireLikeAuxInfo> m_WireLikeObjects = new();
+        public Dictionary<IReferenceTraceObject, HeapPointer> ReferenceTraceObjects { get; } = new();
+
         public override IReadOnlySet<RegisterDesc> Registers => m_Registers;
-        public override IReadOnlyDictionary<IUntypedConstructionPort, IoPortAuxInfo> IoPortShape => m_IoPortShape;
+        public override IEnumerable<IUntypedConstructionPort> IoPortShape => m_IoPortShape;
         public override IReadOnlyDictionary<string, SubComponentDesc> SubComponents => m_SubComponentObjects;
         public override IReadOnlyCollection<INamedStageExpression> IntermediateValues => m_StagedValues;
         public override IReadOnlyDictionary<string, IntermediateValueDesc> IntermediateValueCount => m_ImmValueCounter;
 
         public override IReadOnlyDictionary<IAssignableValue, AssignmentInfo> GenericAssignments => m_GenericAssignments;
+
+        public override IDictionary<IWireLike, WireLikeAuxInfo> WireLikeObjects => m_WireLikeObjects;
 
         public ComponentBuildingModel(Type componentType, ComponentBase componentObject, object[] instParameters) : base(componentType, componentObject, instParameters) {
             
@@ -447,9 +472,9 @@ namespace IntelliVerilog.Core.Analysis {
                         var oldLeftValue = primaryAssign.UntypedLeftValue;
                         assignmentInfo.PromotedRegister.Name = () => $"_cbr_{oldLeftValue.Name()}";
 
-                        if(oldLeftValue is IUntypedConstructionPort internalPort) {
-                            if (m_IoPortShape.ContainsKey(internalPort)) {
-                                var ioAuxInfo = m_IoPortShape[internalPort];
+                        if(oldLeftValue is IWireLike wire) {
+                            if (m_WireLikeObjects.ContainsKey(wire)) {
+                                var ioAuxInfo = m_WireLikeObjects[wire];
                                 foreach (var k in branchPath) {
                                     TrackOutputDependencyList(k.Condition.Condition, ioAuxInfo);
                                 }
@@ -475,9 +500,9 @@ namespace IntelliVerilog.Core.Analysis {
             Behavior.Root.EnumerateDesc((e, branchPath) => {
                 if(e is PrimaryAssignment assignment) {
                     if(assignment.LeftValue is CombPseudoRegister pseudoRegister) {
-                        if(pseudoRegister.BackAssignable is IUntypedConstructionPort port) {
-                            if (m_IoPortShape.ContainsKey(port)) {
-                                var ioPortAux = m_IoPortShape[port];
+                        if(pseudoRegister.BackAssignable is IWireLike wire) {
+                            if (m_WireLikeObjects.ContainsKey(wire)) {
+                                var ioPortAux = m_WireLikeObjects[wire];
 
                                 TrackOutputDependencyList(assignment.RightValue, ioPortAux);
                             }
@@ -514,6 +539,14 @@ namespace IntelliVerilog.Core.Analysis {
         public void RegisterIoPorts(IUntypedPort port) {
             InternalRegisterIoPorts(port);
         }
+        public HeapPointer RegisterWire(Wire wire) {
+            var pointerStorage = new HeapPointer(wire);
+
+            ReferenceTraceObjects.Add(wire, pointerStorage);
+            m_WireLikeObjects.Add(wire, new(wire));
+
+            return pointerStorage;
+        }
         protected void InternalRegisterIoPorts(IUntypedPort port) {
             if(port is IoBundle bundle) {
                 var bundleType = bundle.GetType();
@@ -528,7 +561,8 @@ namespace IntelliVerilog.Core.Analysis {
             }
             if(port is IoComponent) {
                 if(port is IUntypedConstructionPort constructedInternalPort) {
-                    m_IoPortShape.Add(constructedInternalPort, new IoPortAuxInfo(constructedInternalPort));
+                    m_WireLikeObjects.Add(constructedInternalPort, new(constructedInternalPort));
+                    m_IoPortShape.Add(constructedInternalPort);
                 } else {
                     throw new NotSupportedException();
                 }
@@ -537,7 +571,7 @@ namespace IntelliVerilog.Core.Analysis {
             }
             throw new NotSupportedException();
         }
-        protected void TrackOutputDependencyList(AbstractValue value, IoPortAuxInfo info, Action<AbstractValue>? callback = null) {
+        protected void TrackOutputDependencyList(AbstractValue value, WireLikeAuxInfo info, Action<AbstractValue>? callback = null) {
             callback ??= e => {
                 TrackOutputDependencyList(e, info, callback);
             };
@@ -555,7 +589,7 @@ namespace IntelliVerilog.Core.Analysis {
                 var ioAssign = (IoPortAssignmentInfo)m_GenericAssignments[internalOutput];
                 ioAssign.AssignPort(rightValue, range);
 
-                var ioAuxInfo = m_IoPortShape[(IUntypedConstructionPort)internalLeftValue];
+                var ioAuxInfo = m_WireLikeObjects[internalLeftValue];
 
                 TrackOutputDependencyList(rightValue, ioAuxInfo);
             } else {
@@ -574,6 +608,9 @@ namespace IntelliVerilog.Core.Analysis {
             m_StagedValues.Add(stagedValue);
 
             return (AbstractValue)stagedValue;
+        }
+        public void AssignWire(string name, Wire wire) {
+            wire.Name = () => name;
         }
         public void AssignLocalSubComponent(string name, ComponentBase subComponent) {
             if (!m_SubComponentObjects.ContainsKey(name)) {
@@ -603,7 +640,7 @@ namespace IntelliVerilog.Core.Analysis {
         }
 
 
-        public void AssignSubModuleConnections(IAssignableValue leftValue, IUntypedPort rightValue, Range range, nint returnAddress) {
+        public void AssignSubModuleConnections(IAssignableValue leftValue, object rightValue, Range range, nint returnAddress) {
             if(leftValue is IoBundle bundle) {
                 var ioAux = IoComponentProbableHelpers.QueryProbeAuxiliary(leftValue.GetType());
                 foreach (var i in ioAux.GetIoMembers(leftValue.GetType())) {
@@ -613,6 +650,31 @@ namespace IntelliVerilog.Core.Analysis {
                     var oldSlotValue = (IAssignableValue)i.GetValue(leftValue);
 
                     AssignSubModuleConnections(oldSlotValue, newSlotValue, range, returnAddress);
+                }
+
+                return;
+            }
+            if(leftValue is Wire wireLhs) {
+                var rightExpression = ResolveRightValue(rightValue);
+                var bits = (int)wireLhs.UntypedType.WidthBits;
+                var specRange = new SpecifiedRange(range, bits);
+
+
+                Debug.Assert(rightExpression != null);
+
+                if (Behavior.IsInBranchContext) {
+                    Behavior.NotifyAssignment(returnAddress, wireLhs, rightExpression, specRange);
+                } else {
+                    if (!m_GenericAssignments.ContainsKey(wireLhs)) {
+                        m_GenericAssignments.Add(wireLhs, new WireAssignmentInfo(wireLhs));
+                    }
+
+                    var ioAssign = (WireAssignmentInfo)m_GenericAssignments[wireLhs];
+                    ioAssign.AssignPort(rightExpression, specRange);
+
+                    var ioAuxInfo = m_WireLikeObjects[wireLhs];
+
+                    TrackOutputDependencyList(rightExpression, ioAuxInfo);
                 }
 
                 return;
@@ -711,7 +773,7 @@ namespace IntelliVerilog.Core.Analysis {
 
             }
         }
-        protected AbstractValue ResolveRightValue(IUntypedPort rightValue) {
+        protected AbstractValue ResolveRightValue(object rightValue) {
             if (rightValue is IExpressionAssignedIoType expression) {
                 return expression.UntypedExpression;
             }

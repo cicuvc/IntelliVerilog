@@ -44,7 +44,7 @@ namespace IntelliVerilog.Core.Expressions {
         IUntypedDeclPort Creator { get; }
         IUntypedConstructionPort InternalPort { get; }
     }
-    public interface IUntypedPort {
+    public interface IUntypedPort: IWireLike {
         IoPortDirection Direction { get; }
         GeneralizedPortFlags Flags { get; }
     }

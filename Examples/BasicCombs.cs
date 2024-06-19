@@ -36,13 +36,15 @@ namespace IntelliVerilog.Core.Examples {
                 o2 = bits.Bits()
             });
 
-            io.o2 = io.a.RValue;
+            ref var wireOutput = ref Wire.New(bits.Bits());
 
-            //io.output[0] = io.a.RValue[0];
+            io.o2 = io.a.RValue;
+            io.output = wireOutput.RValue;
+
+            wireOutput = io.b.RValue;
+
             if (io.en.RValue) {
-                io.output = io.b.RValue;
-            } else {
-                io.output = io.a.RValue;
+                wireOutput[1] = io.a.RValue[1];
             }
         }
     }

@@ -53,6 +53,7 @@ namespace IntelliVerilog.Core.Analysis {
             var moduleCtorExit = typeof(Components.Module).GetMethod("ModuleConstructorExit", BindingFlags.NonPublic | BindingFlags.Instance)!;
 
             var localVariableStoreHook = typeof(IoAccessHooks).GetMethod(nameof(IoAccessHooks.NotifyLocalVariableWrite), BindingFlags.Static | BindingFlags.Public);
+            var localVariableRefStoreHook = typeof(IoAccessHooks).GetMethod(nameof(IoAccessHooks.NotifyLocalReferenceWrite), BindingFlags.Static | BindingFlags.Public);
 
             var codeBaseLength = editor.Count;
             var methodBody = method.GetMethodBody();
@@ -61,7 +62,10 @@ namespace IntelliVerilog.Core.Analysis {
 
                 if (IsStoreLocal((opcode, operand), out var localIndex)){
                     var localInfo = methodBody.LocalVariables[localIndex];
-                    if (localInfo.LocalType.IsSubclassOf(typeof(AbstractValue)) || localInfo.LocalType.IsSubclassOf(typeof(ComponentBase))) {
+                    var rawType = localInfo.LocalType.HasElementType ? localInfo.LocalType.GetElementType() : localInfo.LocalType;
+                    if (localInfo.LocalType.IsSubclassOf(typeof(AbstractValue)) || 
+                        localInfo.LocalType.IsSubclassOf(typeof(ComponentBase)) ||
+                        rawType.IsSubclassOf(typeof(Wire))) {
                         editor[i] = (ILOpCode.Br, editor.Count);
                         
                         editor.Emit(ILOpCode.Ldloc, localIndex);
@@ -69,12 +73,30 @@ namespace IntelliVerilog.Core.Analysis {
                         editor.Emit(ILOpCode.Ldc_i8, (long)method.DeclaringType!.TypeHandle.Value);
                         editor.Emit(ILOpCode.Ldc_i4, localIndex);
 
-                        editor.Emit(ILOpCode.Call, proxy.AllocateToken(localVariableStoreHook));
+                        var hook = rawType.IsSubclassOf(typeof(Wire)) ? localVariableRefStoreHook : localVariableStoreHook;
+
+
+                        editor.Emit(ILOpCode.Call, proxy.AllocateToken(hook));
 
                         editor.Emit(opcode, operand); // store value
 
                         editor.Emit(ILOpCode.Br, i + 1);
                     }
+                }
+            }
+
+            codeBaseLength = editor.Count;
+            var nofityReferenceWrite = IoAccessHooks.NotifyReferenceWrite;
+            for (var i = 0; i < codeBaseLength; i++) {
+                var (opcode, operand) = editor[i];
+
+                if (opcode == ILOpCode.Stind_ref) {
+                    editor[i] = (ILOpCode.Br, editor.Count);
+
+                    editor.Emit(ILOpCode.Ldarg_0);
+                    editor.Emit(ILOpCode.Call, proxy.AllocateToken(nofityReferenceWrite.Method));
+
+                    editor.Emit(ILOpCode.Br, i + 1);
                 }
             }
 

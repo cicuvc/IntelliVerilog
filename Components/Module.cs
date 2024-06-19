@@ -162,7 +162,7 @@ namespace IntelliVerilog.Core.Components {
         protected void InitExternalPorts() {
             InitExternalBundles(this);
 
-            foreach (var (key,_) in m_InternalModel!.IoPortShape) {
+            foreach (var key in m_InternalModel!.IoPortShape) {
                 var path = key.Location;
 
                 var externalPort = key.Creator.CreateExternalPlaceholder(this, key.PortMember, key);

@@ -45,6 +45,26 @@ namespace IntelliVerilog.Core.Analysis {
 
             return oldValue;
         }
+        public static ref object NotifyLocalReferenceWrite(ref object value, ref object oldRef, nint methodHandle, nint typeHandle, int localIndex) {
+            var method = RuntimeMethodHandle.FromIntPtr(methodHandle);
+            var methodInfo = MethodInfo.GetMethodFromHandle(method, RuntimeTypeHandle.FromIntPtr(typeHandle));
+
+            var managedDebugService = IntelliVerilogLocator.GetService<ManagedDebugInfoService>()!;
+            var localName = managedDebugService.QueryLocalName(methodInfo, localIndex);
+
+            var analysisContext = IntelliVerilogLocator.GetService<AnalysisContext>()!;
+            var buildingModel = analysisContext.CurrentComponent.InternalModel as ComponentBuildingModel;
+
+
+            if (!Unsafe.IsNullRef(ref oldRef)) {
+                return ref oldRef;
+            } else {
+                if (value is Wire wire) {
+                    buildingModel.AssignWire(localName, wire);
+                }
+            }
+            return ref value;
+        }
         public static object NotifyLocalVariableWrite(object value, object oldValue, nint methodHandle, nint typeHandle, int localIndex) {
             var method = RuntimeMethodHandle.FromIntPtr(methodHandle);
             var methodInfo = MethodInfo.GetMethodFromHandle(method, RuntimeTypeHandle.FromIntPtr(typeHandle));
@@ -70,10 +90,19 @@ namespace IntelliVerilog.Core.Analysis {
 
                 IvLogger.Default.Verbose("ModuleConstructionHooks", $"Got sub component '{localName}'");
             }
-
+            
             return value;
         }
+        public static void NotifyReferenceWrite(ref object target, object value, Components.Module module) {
+            var buildingModel = module.InternalModel as ComponentBuildingModel;
 
+            if (target is IAssignableValue assignable) {
+                var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
+                var returnAddress = returnTracker.TrackReturnAddress(module, paramIndex: 3);
+
+                buildingModel.AssignSubModuleConnections(assignable, value, .., returnAddress);
+            }
+        }
         public unsafe static void NotifyIoTupleSet<TTuple>(ref TTuple tuple, IUntypedPort newValue, Components.Module module,  nint fieldHandle) where TTuple: struct, ITuple {
             var field = RuntimeFieldHandle.FromIntPtr(fieldHandle);
             var fieldInfo = FieldInfo.GetFieldFromHandle(field, typeof(TTuple).TypeHandle);

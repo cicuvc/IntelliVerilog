@@ -169,6 +169,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
     }
     public class VerilogModule : VerilogAstNode {
         public List<VerilogIoDecl> IoPorts { get; set; } = new();
+        public Dictionary<IWireLike,VerilogWireDef> ExplicitWires { get; set; } = new();
         public List<VerilogRegisterDef> Registers { get; } = new();
         public Dictionary<IoComponent, VerilogAstNode> SubModuleOutputMap { get; } = new();
         public Module BackModule { get; }
@@ -478,6 +479,12 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
                 return selection;
             }
+            if(value is IWireRightValueWrapper wireWrapper) {
+                var wire = module.ExplicitWires[wireWrapper.UntyedWire];
+                Debug.Assert(wire != null);
+
+                return wire.Identifier;
+            }
             throw new NotImplementedException();
         }
         protected VerilogModule ConvertModuleAst(Module module) {
@@ -485,7 +492,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
             var componentModel = module.InternalModel;
 
-            foreach(var (portInfo, portAux) in componentModel.IoPortShape) {
+            foreach(var portInfo in componentModel.IoPortShape) {
                 var path = portInfo.Location;
                 var portName = $"{string.Join('_', path.Path.Select(e=>e.Name))}_{path.Name}";
                 var portType = portInfo.Direction switch { 
@@ -500,6 +507,13 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 moduleAst.IoPorts.Add(new((IoComponent)portInfo,portName, portType, portInfo.UntypedType.WidthBits, promotedRegister));
             }
 
+            foreach(var (wire, wireAux) in componentModel.WireLikeObjects) {
+                if(wire is Wire wireObject) {
+                    var wireDef = new VerilogWireDef(wireObject.Name(), wireObject.UntypedType?.WidthBits ?? 1, Array.Empty<int>());
+                    moduleAst.ExplicitWires.Add(wireObject, wireDef);
+                    moduleAst.Contents.Add(wireDef);
+                }
+            }
 
             foreach(var i in componentModel.IntermediateValueCount) {
                 moduleAst.Contents.Add(new VerilogWireDef(i.Key, i.Value.UntypedType?.WidthBits ?? 1,new int[] { i.Value.Count }));
@@ -516,7 +530,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
             foreach(var (instName, instGroup) in componentModel.SubComponents) {
                 var subModel = instGroup[0].InternalModel;
 
-                foreach (var (portInfo, portAux) in subModel.IoPortShape) {
+                foreach (var portInfo in subModel.IoPortShape) {
                     if(portInfo.Direction == IoPortDirection.Output) {
                         var path = portInfo.Location;
                         var portName = $"{instName}_{string.Join('_', path.Path.Select(e=>e.Name))}_{path.Name}";
@@ -559,18 +573,37 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
             moduleAst.Contents.Add(new VerilogEmptyLine());
 
-            foreach (var i in moduleAst.IoPorts) {
-                var identifier = new VerilogPureIdentifier(i.Name);
-                if(i.DeclIoComponent is IAssignableValue portDecl) {
-                    if (!componentModel.GenericAssignments.ContainsKey(portDecl)) continue;
-                    var outputAssignments = componentModel.GenericAssignments[portDecl];
+            foreach (var (wire,wireAux) in componentModel.WireLikeObjects) {
+                var assignable = default(IAssignableValue);
+                var identifier = default(VerilogAstNode);
+                var totalBits = 0;
 
+                if(wire is Wire wireObject) {
+                    totalBits = (int)wireObject.UntypedType.WidthBits;
+                    assignable = wireObject;
+                    identifier = moduleAst.ExplicitWires[wireObject].Identifier;
+                }
+                if(wire is IUntypedConstructionPort port) {
+                    if(port is IAssignableValue) {
+                        totalBits = (int)port.UntypedType.WidthBits;
+                        assignable = (IAssignableValue)port;
+                        identifier = moduleAst.IoPorts.Find(e => e.DeclIoComponent == port).Identifier;
+
+                    }
+                }
+
+                if(assignable != null && identifier!=null) {
+                    var outputAssignments = componentModel.GenericAssignments[assignable];
                     foreach (var j in outputAssignments) {
-                        var selection = new VerilogRangeSelection(identifier, j.SelectedRange, (int)portDecl.UntypedType.WidthBits);
+                        var selection = new VerilogRangeSelection(identifier, j.SelectedRange, totalBits);
                         var expr = ConvertExpressions(j.RightValue, componentModel, moduleAst);
                         moduleAst.Contents.Add(new VeriloAssignment(selection, expr));
                     }
+
                 }
+
+
+
             }
 
             moduleAst.Contents.Add(new VerilogEmptyLine());
@@ -581,7 +614,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                         var subModel = subModule.InternalModel;
                         var modelInst = new ModuleInstDecl(subModule, subModule.Name());
 
-                        foreach (var (portInfo, portAux) in subModel.IoPortShape) {
+                        foreach (var portInfo in subModel.IoPortShape) {
                             var path = portInfo.Location;
                             var portName = $"{string.Join('_', path.Path.Select(e => e.Name))}_{path.Name}";
                             if (portInfo.Direction == IoPortDirection.Output) {
