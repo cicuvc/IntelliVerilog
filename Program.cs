@@ -283,36 +283,44 @@ public unsafe static class App {
         RuntimeInjection.AddCompileCallback(new ModuleCompiler());
         RuntimeInjection.HookEnable();
 
-        var adder = new MuxDemo(3);
+        var dummyClock = new DummyClockReset();
+        var dummyReset = new DummyClockReset();
+        var clkDomain = new ClockDomain("clk", dummyClock) { 
+            Reset = dummyReset
+        };
 
-        var codeGen = new VerilogGenerator();
-        var generatedModel = new Dictionary<ComponentModel, Components.Module>();
-        var generationQueue = new Queue<Components.Module>();
-
-        generationQueue.Enqueue(adder);
-        generatedModel.Add(adder.InternalModel, adder);
+        using (ClockArea.Begin(clkDomain)) {
+            var adder = new DFF(3);
 
 
-        while(generationQueue.Count != 0) {
-            var currentModule = generationQueue.Dequeue();
+            var codeGen = new VerilogGenerator();
+            var generatedModel = new Dictionary<ComponentModel, Components.Module>();
+            var generationQueue = new Queue<Components.Module>();
 
-            var code = codeGen.GenerateModuleCode(currentModule);
+            generationQueue.Enqueue(adder);
+            generatedModel.Add(adder.InternalModel, adder);
 
-            Console.WriteLine(code);
 
-            foreach(var i in currentModule.InternalModel.SubComponents) {
-                foreach(var j in i.Value) {
-                    if(j is Components.Module subModule) {
-                        if (!generatedModel.ContainsKey(j.InternalModel)) {
-                            generatedModel.Add(j.InternalModel, subModule);
+            while (generationQueue.Count != 0) {
+                var currentModule = generationQueue.Dequeue();
 
-                            generationQueue.Enqueue(subModule);
+                var code = codeGen.GenerateModuleCode(currentModule);
+
+                Console.WriteLine(code);
+
+                foreach (var i in currentModule.InternalModel.SubComponents) {
+                    foreach (var j in i.Value) {
+                        if (j is Components.Module subModule) {
+                            if (!generatedModel.ContainsKey(j.InternalModel)) {
+                                generatedModel.Add(j.InternalModel, subModule);
+
+                                generationQueue.Enqueue(subModule);
+                            }
                         }
                     }
                 }
             }
         }
-
         Console.ReadLine();
     
     }

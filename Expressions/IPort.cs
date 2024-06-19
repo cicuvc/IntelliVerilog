@@ -1,6 +1,7 @@
 ﻿using IntelliVerilog.Core.Analysis;
 using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.DataTypes;
+using System;
 using System.Reflection;
 
 namespace IntelliVerilog.Core.Expressions {
@@ -20,7 +21,9 @@ namespace IntelliVerilog.Core.Expressions {
         Constructed = 32,
 
         SingleComponent = 64,
-        Bundle = 128
+        Bundle = 128,
+
+        ClockReset = 256
     }
     public interface IUntypedDeclPort : IUntypedPort, IDataTypeSpecifiedPort {
         IUntypedPort CreateInternalPlaceholder(IoBundle parent, IoMemberInfo member);

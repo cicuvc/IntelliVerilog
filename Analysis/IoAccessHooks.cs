@@ -62,6 +62,9 @@ namespace IntelliVerilog.Core.Analysis {
                 if (value is Wire wire) {
                     buildingModel.AssignWire(localName, wire);
                 }
+                if(value is Reg register) {
+                    buildingModel.AssignReg(localName, register);
+                }
             }
             return ref value;
         }

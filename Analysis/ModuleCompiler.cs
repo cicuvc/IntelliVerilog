@@ -65,7 +65,7 @@ namespace IntelliVerilog.Core.Analysis {
                     var rawType = localInfo.LocalType.HasElementType ? localInfo.LocalType.GetElementType() : localInfo.LocalType;
                     if (localInfo.LocalType.IsSubclassOf(typeof(AbstractValue)) || 
                         localInfo.LocalType.IsSubclassOf(typeof(ComponentBase)) ||
-                        rawType.IsSubclassOf(typeof(Wire))) {
+                        rawType.IsSubclassOf(typeof(Wire)) || rawType.IsSubclassOf(typeof(Reg))) {
                         editor[i] = (ILOpCode.Br, editor.Count);
                         
                         editor.Emit(ILOpCode.Ldloc, localIndex);
@@ -73,7 +73,7 @@ namespace IntelliVerilog.Core.Analysis {
                         editor.Emit(ILOpCode.Ldc_i8, (long)method.DeclaringType!.TypeHandle.Value);
                         editor.Emit(ILOpCode.Ldc_i4, localIndex);
 
-                        var hook = rawType.IsSubclassOf(typeof(Wire)) ? localVariableRefStoreHook : localVariableStoreHook;
+                        var hook = rawType.IsSubclassOf(typeof(Wire)) || rawType.IsSubclassOf(typeof(Reg)) ? localVariableRefStoreHook : localVariableStoreHook;
 
 
                         editor.Emit(ILOpCode.Call, proxy.AllocateToken(hook));

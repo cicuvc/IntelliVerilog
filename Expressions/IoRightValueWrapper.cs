@@ -3,6 +3,18 @@ using IntelliVerilog.Core.Expressions.Algebra;
 using System;
 
 namespace IntelliVerilog.Core.Expressions {
+    public class DummyClockReset : RightValue<Bool> {
+        public DummyClockReset() : base(Bool.CreateDefault()) {
+        }
+
+        public override void EnumerateSubNodes(Action<AbstractValue> callback) {
+            throw new NotImplementedException();
+        }
+
+        public override bool Equals(AbstractValue? other) {
+            throw new NotImplementedException();
+        }
+    }
     public class IoRightValueWrapper<TData> : RightValue<TData>, IUntypedIoRightValueWrapper where TData : DataType, IDataType<TData> {
         public IUntypedConstructionPort IoComponent { get; }
         public IoComponent UntypedComponent => (IoComponent)IoComponent;

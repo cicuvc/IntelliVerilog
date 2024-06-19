@@ -2,6 +2,7 @@
 using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.DataTypes;
 using System;
+using System.Linq;
 
 namespace IntelliVerilog.Core.Expressions {
     public class ExternalOutput<TData> 
@@ -28,13 +29,18 @@ namespace IntelliVerilog.Core.Expressions {
         public IUntypedConstructionPort InternalPort { get; }
 
         public override RightValue<TData> this[Range range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-
+        public string GetDefaultName() {
+            var path = Location;
+            var portName = $"{string.Join('_', path.Path.Select(e => e.Name))}_{path.Name}";
+            return portName;
+        }
         public ExternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member, IUntypedConstructionPort internalPort) : base(dataType) {
             PortMember = member; ;
             Parent = parent;
             Component = root;
             Creator = creator;
             InternalPort = internalPort;
+            Name = GetDefaultName;
         }
         public override RightValue<Bool> this[int index] { 
             get {

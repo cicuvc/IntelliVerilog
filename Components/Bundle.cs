@@ -225,6 +225,10 @@ namespace IntelliVerilog.Core.Components {
             Component = root;
             PortMember = member;
         }
+
+        public AssignmentInfo CreateAssignmentInfo() {
+            throw new NotImplementedException();
+        }
     }
 
 }

@@ -93,6 +93,8 @@ public interface ILeftValueOps<TData> where TData : DataType {
     public RightValue<TData> this[Range range] { set; }
 }
 
+
+
 public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValue<TData>, TData>, IRightValueSelectionOps<TData> where TData: DataType {
     public IAlg<TData> TypedAlgebra => (IAlg<TData>)Algebra;
     public TData TypedType => (TData)Type;

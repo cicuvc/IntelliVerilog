@@ -73,6 +73,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
     }
     public abstract class VerilogAstNode {
         public abstract bool NoLineEnd { get; }
+        public virtual bool NoAutoNewLine { get; } = false;
         public abstract void GenerateCode(VerilogGenerationContext context);
     }
     public abstract class VerilogValueDef: VerilogAstNode { 
@@ -147,11 +148,16 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         }
     }
     public class VerilogEmptyLine : VerilogAstNode {
+        public override bool NoAutoNewLine { get; }
         public override bool NoLineEnd => true;
+        public VerilogEmptyLine(bool noNewLine = false) {
+            NoAutoNewLine = noNewLine;
+        }
         public override void GenerateCode(VerilogGenerationContext context) {
             
         }
     }
+
     public class VeriloAssignment : VerilogAstNode {
         public VerilogAstNode LeftValue { get; }
         public VerilogAstNode RightValue { get; }
@@ -357,7 +363,61 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
         public override string Operator => " / ";
     }
+    public class VerilogAlwaysFF : VerilogAstNode {
+        public List<VerilogAstNode> SubNodes { get; } = new();
+        public List<VerilogRegisterDef> RegisterNames { get; } = new();
+        public VerilogAstNode ClockSignal { get; set; }
+        public VerilogAstNode? ResetSignal { get; set; }
+        public VerilogAstNode? SoftResetSignal { get; set; }
+        public VerilogAstNode? ClockEnableSignal { get; set; }
+        public bool ClockPositiveEdge { get; set; } = true;
+        public bool ResetPositiveEdge { get; set; } = true;
+        public override bool NoLineEnd => true;
+        public VerilogAlwaysFF(VerilogAstNode clockSignal) {
+            ClockSignal = clockSignal;
+        }
+        protected void GenerateBodyWithReset(VerilogGenerationContext context) {
+            if(ResetSignal != null) {
+                context.Append(ResetPositiveEdge ? "if(" : "if(!");
+                ResetSignal.GenerateCode(context);
+                context.AppendLine(") begin");
+                using (context.BeginIndent()) {
+                    foreach(var  i in RegisterNames) {
+                        i.Identifier.GenerateCode(context);
+                        context.AppendFormat(" <= {0}'b0;",i.RegisterInfo.UntypedType.WidthBits);
+                        context.AppendLine();
+                    }
+                }
+                context.AppendLine("else begin");
+                using (context.BeginIndent()) {
+                    GenerateBody(context);
+                }
+                context.AppendLine("end");
+            } else {
+                GenerateBody(context);
+            }
+        }
+        protected void GenerateBody(VerilogGenerationContext context) {
+            foreach (var i in SubNodes) {
+                i.GenerateCode(context);
+                if (!i.NoAutoNewLine) context.AppendLine(i.NoLineEnd ? "" : ";");
+            }
+        }
+        public override void GenerateCode(VerilogGenerationContext context) {
+            context.AppendFormat("always@({0} ", ClockPositiveEdge ? "posedge" : "negedge");
+            ClockSignal.GenerateCode(context);
+            if(ResetSignal != null) {
+                context.AppendFormat(" or {0} ", ResetPositiveEdge ? "posedge" : "negedge");
+                ResetSignal.GenerateCode(context);
+            }
+            context.AppendLine(") begin");
 
+            using (context.BeginIndent()) {
+                GenerateBodyWithReset(context);
+            }
+            context.Append("end");
+        }
+    }
     public class VerilogConst : VerilogAstNode {
         public decimal Value { get; }
         public int BitWidth { get; }
@@ -432,7 +492,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
             using (context.BeginIndent()) {
                 foreach(var i in SubNodes) {
                     i.GenerateCode(context);
-                    context.AppendLine(";");
+                    if(!i.NoAutoNewLine) context.AppendLine(i.NoLineEnd ? "" : ";");
                 }
             }
             context.Append("end");
@@ -524,16 +584,33 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
                 return wire.Identifier;
             }
+            if(value is IRegRightValueWrapper regWrapper) {
+                var register = module.Registers.Find(e => {
+                    if (e.RegisterInfo is ClockDrivenRegister realRegister)
+                        return realRegister.BackRegister == regWrapper.UntyedReg;
+                    return false;
+                });
+
+                Debug.Assert(register != null);
+
+                return register.Identifier;
+            }
             throw new NotImplementedException();
+        }
+        protected void AddClockDomain(VerilogModule moduleAst, ClockDomain domain) {
+
         }
         protected VerilogModule ConvertModuleAst(Module module) {
             var moduleAst = new VerilogModule(module);
 
             var componentModel = module.InternalModel;
 
+            foreach(var clockDom in componentModel.UsedClockDomains) {
+
+            }
+
             foreach(var portInfo in componentModel.IoPortShape) {
-                var path = portInfo.Location;
-                var portName = $"{string.Join('_', path.Path.Select(e=>e.Name))}_{path.Name}";
+                var portName = portInfo.Name();
                 var portType = portInfo.Direction switch { 
                     IoPortDirection.Input => VerilogIoType.Input,
                     IoPortDirection.Output => VerilogIoType.Output,
@@ -688,18 +765,62 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
             var alwaysCombBlock = new VerilogAlwaysComb();
 
-            alwaysCombBlock.SubNodes.AddRange(ExpandBehaviorBlock(componentModel.Behavior.Root.FalseBranch, componentModel, moduleAst));
+            alwaysCombBlock.SubNodes.AddRange(ExpandBehaviorBlock(componentModel.Behavior.Root.FalseBranch, componentModel, moduleAst, (e) => { 
+                if(e is PrimaryAssignment assignment) {
+                    return !(assignment.LeftValue is ClockDrivenRegister);
+                }
+                return true;
+            }));
 
             moduleAst.Contents.Add(alwaysCombBlock);
 
+
+            foreach(var i in componentModel.UsedClockDomains) {
+                var registers = moduleAst.Registers.Where(e => {
+                    if (e.RegisterInfo is ClockDrivenRegister realRegister)
+                        return realRegister.BackRegister.ClockDom == i;
+                    return false;
+                });
+
+                if (registers.Count() == 0) continue;
+
+                var clock = moduleAst.IoPorts.Find(e => (e.DeclIoComponent is ClockDomainInput domainInput) && domainInput.SignalType == ClockDomainSignal.Clock);
+
+                var alwaysFF = new VerilogAlwaysFF(clock.Identifier) {
+                    ClockPositiveEdge = i.ClockRiseEdge,
+                    ResetPositiveEdge = i.ResetHighActive
+                };
+                if(i.Reset != null) {
+                    var reset = moduleAst.IoPorts.Find(e => (e.DeclIoComponent is ClockDomainInput domainInput) && domainInput.SignalType == ClockDomainSignal.Reset);
+                    alwaysFF.ResetSignal = reset.Identifier;
+                }
+
+                alwaysFF.SubNodes.AddRange(ExpandBehaviorBlock(componentModel.Behavior.Root.FalseBranch, componentModel, moduleAst, (e) => {
+                    if (e is PrimaryAssignment assignment) {
+                        return (assignment.LeftValue is ClockDrivenRegister realRegister) && (realRegister.BackRegister.ClockDom == i);
+                    }
+                    return true;
+                }));
+                alwaysFF.RegisterNames.AddRange(registers);
+
+                moduleAst.Contents.Add(alwaysFF);
+            }
+
             return moduleAst;
         }
-        protected IEnumerable<VerilogAstNode> ExpandBehaviorBlock(IEnumerable<BehaviorDesc> block, ComponentModel compModel, VerilogModule moduleAst) {
-            return block.Select(e => {
+        protected IEnumerable<VerilogAstNode> ExpandBehaviorBlock(IEnumerable<BehaviorDesc> block, ComponentModel compModel, VerilogModule moduleAst,Func<BehaviorDesc,bool> allowEmit) {
+            return block.Where(allowEmit).Select(e => {
                 if (e is BranchDesc branch) {
+                    var trueBlock = ExpandBehaviorBlock(branch.TrueBranch, compModel, moduleAst, allowEmit);
+                    var falseBlock = ExpandBehaviorBlock(branch.FalseBranch, compModel, moduleAst, allowEmit);
+
+                    if(trueBlock.Count() == 0 && falseBlock.Count() == 0) {
+                        return new VerilogEmptyLine(true);
+                    }
+
                     var ifClause = new VerilogBranch(ConvertExpressions(branch.Condition.Condition, compModel, moduleAst));
-                    ifClause.TrueBranches.AddRange(ExpandBehaviorBlock(branch.TrueBranch, compModel, moduleAst));
-                    ifClause.FalseBranches.AddRange(ExpandBehaviorBlock(branch.FalseBranch, compModel, moduleAst));
+                    ifClause.TrueBranches.AddRange(trueBlock);
+                    ifClause.FalseBranches.AddRange(falseBlock);
                     return (VerilogAstNode)ifClause;
                 }
                 if(e is PrimaryAssignment assignment) {

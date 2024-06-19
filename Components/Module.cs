@@ -163,6 +163,8 @@ namespace IntelliVerilog.Core.Components {
             InitExternalBundles(this);
 
             foreach (var key in m_InternalModel!.IoPortShape) {
+                if (key.Flags.HasFlag(GeneralizedPortFlags.ClockReset)) continue;
+
                 var path = key.Location;
 
                 var externalPort = key.Creator.CreateExternalPlaceholder(this, key.PortMember, key);

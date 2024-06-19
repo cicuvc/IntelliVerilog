@@ -3,53 +3,55 @@ using IntelliVerilog.Core.DataTypes;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.Expressions {
-    public interface IWireRightValueWrapper {
-        Wire UntyedWire { get; }
+    public interface IRegRightValueWrapper {
+        Reg UntyedReg { get; }
     }
-    public class WireRightValueWrapper<TData> : RightValue<TData> , IWireRightValueWrapper where TData : DataType, IDataType<TData> {
-        public Wire<TData> WireDef { get; }
-        public Wire UntyedWire => WireDef;
-        public WireRightValueWrapper(Wire<TData> wire):base((TData)wire.UntypedType) {
-            WireDef = wire;
+    public class RegRightValueWrapper<TData> : RightValue<TData>, IRegRightValueWrapper where TData : DataType, IDataType<TData> {
+        public Reg<TData> RegDef { get; }
+        public Reg UntyedReg => RegDef;
+        public RegRightValueWrapper(Reg<TData> Reg) : base((TData)Reg.UntypedType) {
+            RegDef = Reg;
         }
-        public override void EnumerateSubNodes(Action<AbstractValue> callback) {}
+        public override void EnumerateSubNodes(Action<AbstractValue> callback) { }
 
         public override bool Equals(AbstractValue? other) {
-            if(other is WireRightValueWrapper<TData> expression) {
-                return expression.WireDef == WireDef;
+            if (other is RegRightValueWrapper<TData> expression) {
+                return expression.RegDef == RegDef;
             }
             return false;
         }
     }
-    public class Wire : IAssignableValue,IReferenceTraceObject,IWireLike {
+    public class Reg : IAssignableValue, IReferenceTraceObject, IWireLike {
         public DataType UntypedType { get; }
-
-        public Func<string> Name { get; set; } = () => "<unnamed wire>";
-        public Wire(DataType type) {
+        public ClockDomain? ClockDom { get; }
+        public Func<string> Name { get; set; } = () => "<unnamed reg>";
+        public Reg(DataType type, ClockDomain? clockDom) {
             UntypedType = type;
+            ClockDom = clockDom;
         }
-        public static ref Wire<TData> New<TData>(TData type) where TData : DataType, IDataType<TData> {
+        public static ref Reg<TData> New<TData>(TData type, ClockDomain? clockDom = null) where TData : DataType, IDataType<TData> {
+            clockDom ??= ScopedLocator.GetService<ClockDomain>();
+
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
             var componentModel = context.CurrentComponent!.InternalModel as ComponentBuildingModel;
 
-            var wire = new Wire<TData>(type);
+            var Reg = new Reg<TData>(type, clockDom);
 
-            var pointerStorage = componentModel.RegisterWire(wire);
-            return ref Unsafe.As<IReferenceTraceObject, Wire<TData>>(ref pointerStorage.Pointer);
+            var pointerStorage = componentModel.RegisterReg(Reg);
+            return ref Unsafe.As<IReferenceTraceObject, Reg<TData>>(ref pointerStorage.Pointer);
         }
 
         public AssignmentInfo CreateAssignmentInfo() {
-            return new WireAssignmentInfo(this);
+            return new RegAssignmentInfo(this);
         }
     }
-    public class ExpressedWire<TData>:Wire<TData> , IExpressionAssignedIoType where TData : DataType, IDataType<TData> {
-        public ExpressedWire(RightValue<TData> expression) : base(expression.TypedType) {
+    public class ExpressedReg<TData> : Reg<TData>, IExpressionAssignedIoType where TData : DataType, IDataType<TData> {
+        public ExpressedReg(RightValue<TData> expression, ClockDomain? clockDom) : base(expression.TypedType, clockDom) {
             Expression = expression;
         }
 
@@ -57,22 +59,22 @@ namespace IntelliVerilog.Core.Expressions {
         public AbstractValue UntypedExpression => Expression;
         public override RightValue<TData> RValue => Expression;
     }
-    public class Wire<TData> : Wire,
-        IRightValueOps<Wire<TData>, TData>,
+    public class Reg<TData> : Reg,
+        IRightValueOps<Reg<TData>, TData>,
         IRightValueSelectionOps<TData>,
         ILeftValueOps<TData> where TData : DataType, IDataType<TData> {
-        protected WireRightValueWrapper<TData>? m_RValueCache = null;
+        protected RegRightValueWrapper<TData>? m_RValueCache = null;
         public virtual RightValue<TData> RValue {
             get {
                 if (m_RValueCache == null) m_RValueCache = new(this);
                 return m_RValueCache;
             }
         }
-        public Wire(TData type) : base(type) {
+        public Reg(TData type, ClockDomain? clockDom) : base(type, clockDom) {
         }
-        
-        public static implicit operator Wire<TData>(RightValue<TData> value) {
-            return new ExpressedWire<TData>(value);
+
+        public static implicit operator Reg<TData>(RightValue<TData> value) {
+            return new ExpressedReg<TData>(value,null);
         }
         public RightValue<Bool> this[uint index] {
             get => RValue[index];
@@ -92,9 +94,9 @@ namespace IntelliVerilog.Core.Expressions {
                 if (currentModel == null) return;
 
                 var cast = new CastExpression<TData>((TData)UntypedType.CreateWithWidth(1), value);
-                var wrapper = new ExpressedWire<TData>(cast);
+                var wrapper = new ExpressedReg<TData>(cast, ClockDom);
 
-                currentModel.AssignSubModuleConnections(this, wrapper, index..(index+1), returnAddress);
+                currentModel.AssignSubModuleConnections(this, wrapper, index..(index + 1), returnAddress);
             }
         }
         public RightValue<TData> this[Range range] {
@@ -107,37 +109,37 @@ namespace IntelliVerilog.Core.Expressions {
 
                 if (currentModel == null) return;
 
-                var wrapper = new ExpressedWire<TData>(value);
+                var wrapper = new ExpressedReg<TData>(value, ClockDom);
 
                 currentModel.AssignSubModuleConnections(this, wrapper, range, returnAddress);
             }
         }
 
-        public static RightValue<TData> operator +(Wire<TData> lhs, Wire<TData> rhs) {
+        public static RightValue<TData> operator +(Reg<TData> lhs, Reg<TData> rhs) {
             return lhs.RValue + rhs.RValue;
         }
 
-        public static RightValue<TData> operator -(Wire<TData> lhs, Wire<TData> rhs) {
+        public static RightValue<TData> operator -(Reg<TData> lhs, Reg<TData> rhs) {
             return lhs.RValue - rhs.RValue;
         }
 
-        public static RightValue<TData> operator *(Wire<TData> lhs, Wire<TData> rhs) {
+        public static RightValue<TData> operator *(Reg<TData> lhs, Reg<TData> rhs) {
             return lhs.RValue * rhs.RValue;
         }
 
-        public static RightValue<TData> operator /(Wire<TData> lhs, Wire<TData> rhs) {
+        public static RightValue<TData> operator /(Reg<TData> lhs, Reg<TData> rhs) {
             return lhs.RValue / rhs.RValue;
         }
 
-        public static RightValue<TData> operator &(Wire<TData> lhs, Wire<TData> rhs) {
+        public static RightValue<TData> operator &(Reg<TData> lhs, Reg<TData> rhs) {
             return lhs.RValue & rhs.RValue;
         }
 
-        public static RightValue<TData> operator |(Wire<TData> lhs, Wire<TData> rhs) {
+        public static RightValue<TData> operator |(Reg<TData> lhs, Reg<TData> rhs) {
             return lhs.RValue | rhs.RValue;
         }
 
-        public static RightValue<TData> operator ^(Wire<TData> lhs, Wire<TData> rhs) {
+        public static RightValue<TData> operator ^(Reg<TData> lhs, Reg<TData> rhs) {
             return lhs.RValue ^ rhs.RValue;
         }
     }

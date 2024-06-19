@@ -7,7 +7,6 @@ using System.Reflection;
 
 namespace IntelliVerilog.Core.Expressions {
     public class InternalOutput<TData> : TypeSpecifiedOutput<TData>, IUntypedConstructionPort, IAssignableValue where TData : DataType, IDataType<TData> {
-        public Func<string> Name { get; set; }
         public InternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member) : base(dataType) {
             PortMember = member; ;
             Parent = parent;
@@ -20,6 +19,11 @@ namespace IntelliVerilog.Core.Expressions {
             var portName = $"{string.Join('_', path.Path.Select(e => e.Name))}_{path.Name}";
             return portName;
         }
+
+        public AssignmentInfo CreateAssignmentInfo() {
+            return new IoPortAssignmentInfo(this);
+        }
+
         public unsafe override RightValue<Bool> this[int index] {
             get {
                 return new InvertedInternalOutput<Bool>(Bool.CreateDefault(), this, index..(index + 1));
@@ -66,5 +70,6 @@ namespace IntelliVerilog.Core.Expressions {
         public IoPortPath Location => new IoPortPath(this, PortMember);
 
         public IUntypedConstructionPort InternalPort => this;
+
     }
 }

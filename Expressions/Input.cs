@@ -146,10 +146,12 @@ namespace IntelliVerilog.Core.Expressions {
         public IUntypedDeclPort Creator { get; }
 
         public IUntypedConstructionPort InternalPort { get; }
-        public Func<string> Name { get; set; } 
+        public AssignmentInfo CreateAssignmentInfo() {
+            return new IoPortAssignmentInfo(this);
+        }
         public string GetDefaultName() {
             var path = Location;
-            var portName = $"{Component.Name()}_{string.Join('_', path.Path.Select(e => e.Name))}_{path.Name}";
+            var portName = $"_{string.Join('_', path.Path.Select(e => e.Name))}_{path.Name}";
             return portName;
         }
         public unsafe override RightValue<TData> this[Range range] { 
@@ -168,13 +170,56 @@ namespace IntelliVerilog.Core.Expressions {
             }
         }
     }
+    public enum ClockDomainSignal {
+        Clock = 0,
+        Reset = 1,
+        SyncReset = 2,
+        ClockEnable = 3
+    }
+    public class ClockDomainInput : TypeSpecifiedInput<Bool>, IUntypedConstructionPort {
+        private static string[] m_SignalNames = new string[4] {
+            "clk", "rst", "sync_rst", "clken"
+        };
+        public ClockDomain ClockDom { get; }
+        public ClockDomainSignal SignalType { get; }
+        public ClockDomainInput(ClockDomain clockDom, ClockDomainSignal sigType) : base(Bool.CreateDefault()) {
+            ClockDom = clockDom;
+            SignalType = sigType;
+            var name = $"{clockDom.Name}_{m_SignalNames[(int)sigType]}";
+            Name = () => name;
+        }
+        public override RightValue<Bool> this[int index] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+        public override RightValue<Bool> this[Range range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+
+        public IUntypedDeclPort Creator => throw new NotImplementedException();
+
+        public IUntypedConstructionPort InternalPort => throw new NotImplementedException();
+
+        public IoMemberInfo PortMember => throw new NotImplementedException();
+
+        public IoBundle Parent => throw new NotImplementedException();
+
+        public ComponentBase Component => throw new NotImplementedException();
+
+        public IoPortPath Location => throw new NotImplementedException();
+
+        public override GeneralizedPortFlags Flags =>
+            GeneralizedPortFlags.WidthSpecified | GeneralizedPortFlags.SingleComponent |
+            GeneralizedPortFlags.Placeholder | GeneralizedPortFlags.InternalPort |
+            GeneralizedPortFlags.ClockReset;
+    }
     public class InternalInput<TData> : TypeSpecifiedInput<TData>, IUntypedConstructionPort where TData : DataType, IDataType<TData> {
         public InternalInput(TData dataType, IUntypedDeclPort creator,IoBundle parent, ComponentBase root, IoMemberInfo member) : base(dataType) {
             PortMember = member; ;
             Parent = parent;
             Component = root;
             Creator = creator;
-
+            Name = GetDefaultName;
+        }
+        public string GetDefaultName() {
+            var path = Location;
+            var portName = $"{string.Join('_', path.Path.Select(e => e.Name))}_{path.Name}";
+            return portName;
         }
         public override RightValue<Bool> this[int index] {
             get => RValue[index];

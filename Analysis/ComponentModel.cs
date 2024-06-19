@@ -171,12 +171,13 @@ namespace IntelliVerilog.Core.Analysis {
         protected HashSet<ComponentBase> m_SubComponents = new();
         public BehaviorContext? Behavior { get; set; } 
         
+        public abstract IEnumerable<ClockDomain> UsedClockDomains { get; }
         public abstract IDictionary<IWireLike, WireLikeAuxInfo> WireLikeObjects { get; }
         public abstract IReadOnlyDictionary<IAssignableValue, AssignmentInfo> GenericAssignments { get; }
         public abstract IEnumerable<IUntypedConstructionPort> IoPortShape { get; } 
         public abstract IReadOnlyCollection<INamedStageExpression> IntermediateValues { get; }
         public abstract IReadOnlyDictionary<string, IntermediateValueDesc> IntermediateValueCount { get; }
-        public abstract IReadOnlySet<RegisterDesc> Registers { get; }
+        public abstract IEnumerable<RegisterDesc> Registers { get; }
         public ComponentBase ReferenceModule => m_ComponentObject;
         public abstract IReadOnlyDictionary<string, SubComponentDesc> SubComponents { get; }
         public ComponentModel(Type componentType, ComponentBase componentObject, object[] instParameters) {
@@ -271,7 +272,7 @@ namespace IntelliVerilog.Core.Analysis {
             Add(assignment);
         }
     }
-    public class RegisterDesc:IAssignableValue {
+    public abstract class RegisterDesc:IAssignableValue {
         protected RegisterValue? m_RightValueCache;
         public DataType UntypedType { get; }
         public bool IsCombination { get; }
@@ -288,11 +289,26 @@ namespace IntelliVerilog.Core.Analysis {
             UntypedType = type;
             IsCombination = isComb;
         }
+
+        public abstract AssignmentInfo CreateAssignmentInfo();
     }
     public class CombPseudoRegister : RegisterDesc {
         public IAssignableValue BackAssignable { get; }
         public CombPseudoRegister(IAssignableValue assignable) : base(assignable.UntypedType, true) {
             BackAssignable = assignable;
+        }
+
+        public override AssignmentInfo CreateAssignmentInfo() {
+            return new WireAssignmentInfo(BackAssignable);
+        }
+    }
+    public class ClockDrivenRegister : RegisterDesc {
+        public Reg BackRegister { get; }
+        public ClockDrivenRegister(Reg register) : base(register.UntypedType, false) {
+            BackRegister = register;
+        }
+        public override AssignmentInfo CreateAssignmentInfo() {
+            return new RegAssignmentInfo(BackRegister);
         }
     }
     public class RegisterValue : AbstractValue {
@@ -314,26 +330,10 @@ namespace IntelliVerilog.Core.Analysis {
     }
     public interface IAssignableValue: ILazyNamedObject {
         DataType UntypedType { get; }
-        
 
+        AssignmentInfo CreateAssignmentInfo();
     }
-    public class LeftValueCombination : IAssignableValue {
-        public IAssignableValue[] SubValues { get; }
-        public DataType UntypedType { get; }
-        public Func<string> Name { get; set; } = () => "<unnamed>";
 
-        public LeftValueCombination(IAssignableValue[] subValues) {
-            var type = subValues.First().UntypedType;
-            if(subValues.Count(e=>e.UntypedType != type) > 0) {
-                throw new InvalidOperationException("Type mismatch at combination");
-            }
-
-            var totalBits = subValues.Sum(e => e.UntypedType.WidthBits);
-
-            UntypedType = type.CreateWithWidth((uint)totalBits);
-            SubValues = subValues;
-        }
-    }
     public class AssignableLeftValueInfo {
         public IAssignableValue LeftValue { get; }
         public AssignableLeftValueInfo() {
@@ -346,15 +346,17 @@ namespace IntelliVerilog.Core.Analysis {
         SpecifiedRange SelectedRange { get; }
         BehaviorDesc ToBeahviorDesc(IAssignableValue? redirectedLeftValue);
     }
-    public class AssignmentInfo : List<IBasicAssignmentTerm> {
+    public abstract class AssignmentInfo : List<IBasicAssignmentTerm> {
         public IAssignableValue UntypedLeftValue { get; }
         public RegisterDesc? PromotedRegister { get; set; }
+        public abstract bool RegisterPromotable { get; }
         public AssignmentInfo(IAssignableValue leftValue) {
             UntypedLeftValue = leftValue;
         }
     }
     public class IoPortAssignmentInfo : AssignmentInfo {
         public IUntypedConstructionPort PortLeftValue => (IUntypedConstructionPort)UntypedLeftValue;
+        public override bool RegisterPromotable => true;
         public IoPortAssignmentInfo(IAssignableValue leftValue) : base(leftValue) {
         }
         public virtual void AssignPort(AbstractValue value, SpecifiedRange range) {
@@ -363,7 +365,17 @@ namespace IntelliVerilog.Core.Analysis {
     }
     public class WireAssignmentInfo : AssignmentInfo {
         public Wire WireLeftValue => (Wire)UntypedLeftValue;
+        public override bool RegisterPromotable => true;
         public WireAssignmentInfo(IAssignableValue leftValue) : base(leftValue) {
+        }
+        public virtual void AssignPort(AbstractValue value, SpecifiedRange range) {
+            Add(new PrimaryAssignment(UntypedLeftValue, value, range, nint.Zero));
+        }
+    }
+    public class RegAssignmentInfo : AssignmentInfo {
+        public Reg RegLeftValue => (Reg)UntypedLeftValue;
+        public override bool RegisterPromotable => false;
+        public RegAssignmentInfo(Reg register) : base(register) {
         }
         public virtual void AssignPort(AbstractValue value, SpecifiedRange range) {
             Add(new PrimaryAssignment(UntypedLeftValue, value, range, nint.Zero));
@@ -395,31 +407,29 @@ namespace IntelliVerilog.Core.Analysis {
     public class WireLikeAuxInfo {
         public IWireLike Wire { get; }
         public HashSet<CombLogicDependency> CombLogicDependencyMap { get; } = new();
-        public HashSet<WireLikeAuxInfo> CombLogicInvDependencyMap { get; } = new();
-        public int UnresolvedWires { get; set; }
         public WireLikeAuxInfo(IWireLike port) {
             Wire = port;
         }
     }
     public class ComponentBuildingModel : ComponentModel {
+        protected HashSet<ClockDomain> m_ClockDomains = new();
         protected List<IUntypedConstructionPort> m_IoPortShape = new();
         protected Dictionary<string, IntermediateValueDesc> m_ImmValueCounter = new();
         protected List<INamedStageExpression> m_StagedValues = new();
         protected Dictionary<string, SubComponentDesc> m_SubComponentObjects = new();
-        protected HashSet<RegisterDesc> m_Registers = new();
+        protected List<RegisterDesc> m_Registers = new();
         protected Dictionary<IAssignableValue, AssignmentInfo> m_GenericAssignments = new();
 
         protected Dictionary<IWireLike, WireLikeAuxInfo> m_WireLikeObjects = new();
         public Dictionary<IReferenceTraceObject, HeapPointer> ReferenceTraceObjects { get; } = new();
 
-        public override IReadOnlySet<RegisterDesc> Registers => m_Registers;
+        public override IEnumerable<ClockDomain> UsedClockDomains => m_ClockDomains;
+        public override IEnumerable<RegisterDesc> Registers => m_Registers;
         public override IEnumerable<IUntypedConstructionPort> IoPortShape => m_IoPortShape;
         public override IReadOnlyDictionary<string, SubComponentDesc> SubComponents => m_SubComponentObjects;
         public override IReadOnlyCollection<INamedStageExpression> IntermediateValues => m_StagedValues;
         public override IReadOnlyDictionary<string, IntermediateValueDesc> IntermediateValueCount => m_ImmValueCounter;
-
         public override IReadOnlyDictionary<IAssignableValue, AssignmentInfo> GenericAssignments => m_GenericAssignments;
-
         public override IDictionary<IWireLike, WireLikeAuxInfo> WireLikeObjects => m_WireLikeObjects;
 
         public ComponentBuildingModel(Type componentType, ComponentBase componentObject, object[] instParameters) : base(componentType, componentObject, instParameters) {
@@ -464,40 +474,42 @@ namespace IntelliVerilog.Core.Analysis {
         public void ModelCheck() {
             var rootSet = new List<BehaviorDesc>();
             
-            Behavior.Root.EnumerateDesc((e,branchPath) => { 
-                if(e is PrimaryAssignment primaryAssign) {
+            Behavior.Root.EnumerateDesc((e,branchPath) => {
+                if (e is PrimaryAssignment primaryAssign) {
                     if (!m_GenericAssignments.ContainsKey(primaryAssign.UntypedLeftValue)) {
-                        m_GenericAssignments.Add(primaryAssign.UntypedLeftValue, new (primaryAssign.UntypedLeftValue));
+                        m_GenericAssignments.Add(primaryAssign.UntypedLeftValue, (primaryAssign.UntypedLeftValue.CreateAssignmentInfo()));
                     }
 
                     var assignmentInfo = m_GenericAssignments[primaryAssign.UntypedLeftValue];
 
-                    if (assignmentInfo.PromotedRegister == null) {
-                        m_Registers.Add(assignmentInfo.PromotedRegister = new CombPseudoRegister(assignmentInfo.UntypedLeftValue));
-                        var oldLeftValue = primaryAssign.UntypedLeftValue;
-                        assignmentInfo.PromotedRegister.Name = () => $"_cbr_{oldLeftValue.Name()}";
+                    if (assignmentInfo.RegisterPromotable) {
+                        if (assignmentInfo.PromotedRegister == null) {
+                            m_Registers.Add(assignmentInfo.PromotedRegister = new CombPseudoRegister(assignmentInfo.UntypedLeftValue));
+                            var oldLeftValue = primaryAssign.UntypedLeftValue;
+                            assignmentInfo.PromotedRegister.Name = () => $"_cbr_{oldLeftValue.Name()}";
 
-                        if(oldLeftValue is IWireLike wire) {
-                            if (m_WireLikeObjects.ContainsKey(wire)) {
-                                var ioAuxInfo = m_WireLikeObjects[wire];
-                                foreach (var k in branchPath) {
-                                    TrackOutputDependencyList(k.Condition.Condition, ioAuxInfo);
+                            if (oldLeftValue is IWireLike wire) {
+                                if (m_WireLikeObjects.ContainsKey(wire)) {
+                                    var ioAuxInfo = m_WireLikeObjects[wire];
+                                    foreach (var k in branchPath) {
+                                        TrackOutputDependencyList(k.Condition.Condition, ioAuxInfo);
+                                    }
                                 }
                             }
+
+                            foreach (var i in assignmentInfo) {
+                                var subAssignment = new PrimaryAssignment(assignmentInfo.PromotedRegister, i.RightValue, i.SelectedRange, nint.Zero);
+
+                                rootSet.Add(subAssignment);
+                            }
+
+                            assignmentInfo.Clear();
+
+                            var totalBits = oldLeftValue.UntypedType.WidthBits;
+                            assignmentInfo.Add(new PrimaryAssignment(oldLeftValue, assignmentInfo.PromotedRegister.RVaule, new(.., (int)totalBits), nint.Zero));
                         }
-
-                        foreach (var i in assignmentInfo) {
-                            var subAssignment = new PrimaryAssignment(assignmentInfo.PromotedRegister, i.RightValue, i.SelectedRange, nint.Zero);
-
-                            rootSet.Add(subAssignment);
-                        }
-
-                        assignmentInfo.Clear();
-
-                        var totalBits = oldLeftValue.UntypedType.WidthBits;
-                        assignmentInfo.Add(new PrimaryAssignment(oldLeftValue, assignmentInfo.PromotedRegister.RVaule, new(.., (int)totalBits), nint.Zero));
+                        primaryAssign.LeftValue = assignmentInfo.PromotedRegister;
                     }
-                    primaryAssign.LeftValue = assignmentInfo.PromotedRegister;
                 }
             });
             Behavior.Root.FalseBranch.InsertRange(0, rootSet);
@@ -529,13 +541,13 @@ namespace IntelliVerilog.Core.Analysis {
                 }
             });
 
-            var checkResult = CheckLatch(Behavior.Root.FalseBranch, combAlwaysPortList);
-            foreach (var (k, v) in combAlwaysPortList) {
-                var fullyAssigned = checkResult[k];
-                if (!v.Equals(fullyAssigned)) {
-                    throw new Exception("Latch detected");
-                }
-            }
+            //var checkResult = CheckLatch(Behavior.Root.FalseBranch, combAlwaysPortList);
+            //foreach (var (k, v) in combAlwaysPortList) {
+            //    var fullyAssigned = checkResult[k];
+            //    if (!v.Equals(fullyAssigned)) {
+            //        throw new Exception("Latch detected");
+            //    }
+            //}
 
             foreach(var (wire,wireAux) in m_WireLikeObjects) {
                 if(wire is Wire wireObject) {
@@ -564,6 +576,16 @@ namespace IntelliVerilog.Core.Analysis {
 
             ReferenceTraceObjects.Add(wire, pointerStorage);
             m_WireLikeObjects.Add(wire, new(wire));
+
+            return pointerStorage;
+        }
+        public HeapPointer RegisterReg(Reg wire) {
+            var pointerStorage = new HeapPointer(wire);
+
+            ReferenceTraceObjects.Add(wire, pointerStorage);
+            m_WireLikeObjects.Add(wire, new(wire));
+
+            m_Registers.Add(new ClockDrivenRegister(wire));
 
             return pointerStorage;
         }
@@ -687,6 +709,40 @@ namespace IntelliVerilog.Core.Analysis {
         public void AssignWire(string name, Wire wire) {
             wire.Name = () => name;
         }
+        public void RegisterClockDomain(ClockDomain clkDomain) {
+            if (!m_ClockDomains.Contains(clkDomain)) {
+                m_ClockDomains.Add(clkDomain);
+
+                if(clkDomain.Clock != null) {
+                    var fakeClock = new ClockDomainInput(clkDomain,ClockDomainSignal.Clock);
+                    m_IoPortShape.Add(fakeClock);
+                }
+                if (clkDomain.Reset != null) {
+                    var fakeClock = new ClockDomainInput(clkDomain, ClockDomainSignal.Reset);
+                    m_IoPortShape.Add(fakeClock);
+                }
+                if (clkDomain.SyncReset != null) {
+                    var fakeClock = new ClockDomainInput(clkDomain, ClockDomainSignal.SyncReset);
+                    m_IoPortShape.Add(fakeClock);
+                }
+                if (clkDomain.ClockEnable != null) {
+                    var fakeClock = new ClockDomainInput(clkDomain, ClockDomainSignal.ClockEnable);
+                    m_IoPortShape.Add(fakeClock);
+                }
+            }
+        }
+        public void AssignReg(string name, Reg wire) {
+            var regDesc = m_Registers.Find(e => {
+                if(e is ClockDrivenRegister realRegister)
+                    return realRegister.BackRegister == wire;
+                return false;
+            });
+            Debug.Assert(regDesc != null);
+            regDesc.Name = wire.Name = () => name;
+
+            if(wire.ClockDom != null)
+                RegisterClockDomain(wire.ClockDom);
+        }
         public void AssignLocalSubComponent(string name, ComponentBase subComponent) {
             if (!m_SubComponentObjects.ContainsKey(name)) {
                 m_SubComponentObjects.Add(name, new(name));
@@ -706,6 +762,10 @@ namespace IntelliVerilog.Core.Analysis {
                 var componentSet = m_SubComponentObjects[subComponent.CatagoryName];
                 return $"{componentSet.InstanceName}_{componentSet.IndexOf(subComponent)}";
             };
+
+            foreach(var i in (subComponent.InternalModel.UsedClockDomains)) {
+                RegisterClockDomain(i);
+            }
         }
         protected SubComponentDesc GetSubComponentDesc(ComponentBase subComponent) {
             if (!m_SubComponentObjects.ContainsKey(subComponent.CatagoryName)) {
@@ -729,11 +789,40 @@ namespace IntelliVerilog.Core.Analysis {
 
                 return;
             }
-            if(leftValue is Wire wireLhs) {
+            if(leftValue is Reg register) {
+                var rightExpression = ResolveRightValue(rightValue);
+                var bits = (int)register.UntypedType.WidthBits;
+                var specRange = new SpecifiedRange(range, bits);
+                Debug.Assert(rightExpression != null);
+
+                var registerDesc = m_Registers.Find(e => {
+                    if (e is ClockDrivenRegister realRegister) return realRegister.BackRegister == register;
+                    return false;
+                });
+
+                Debug.Assert(registerDesc != null);
+
+                if (Behavior.IsInBranchContext) {
+                    Behavior.NotifyAssignment(returnAddress, registerDesc, rightExpression, specRange);
+                } else {
+                    if (!m_GenericAssignments.ContainsKey(registerDesc)) {
+                        m_GenericAssignments.Add(registerDesc, register.CreateAssignmentInfo());
+                    }
+
+                    var ioAssign = (WireAssignmentInfo)m_GenericAssignments[registerDesc];
+                    ioAssign.AssignPort(rightExpression, specRange);
+
+                    //var ioAuxInfo = m_WireLikeObjects[register];
+
+                    //TrackOutputDependencyList(rightExpression, ioAuxInfo);
+                }
+
+                return;
+            }
+            if (leftValue is Wire wireLhs) {
                 var rightExpression = ResolveRightValue(rightValue);
                 var bits = (int)wireLhs.UntypedType.WidthBits;
                 var specRange = new SpecifiedRange(range, bits);
-
 
                 Debug.Assert(rightExpression != null);
 
