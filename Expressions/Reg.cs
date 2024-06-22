@@ -2,10 +2,12 @@
 using IntelliVerilog.Core.DataTypes;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 
 namespace IntelliVerilog.Core.Expressions {
     public interface IRegRightValueWrapper {
@@ -26,21 +28,23 @@ namespace IntelliVerilog.Core.Expressions {
             return false;
         }
     }
-    public class Reg : IAssignableValue, IReferenceTraceObject, IWireLike {
-        public DataType UntypedType { get; }
+    public class Reg : ClockDrivenRegister, IAssignableValue, IReferenceTraceObject, IWireLike {
         public ClockDomain? ClockDom { get; }
-        public Func<string> Name { get; set; } = () => "<unnamed reg>";
-        public Reg(DataType type, ClockDomain? clockDom) {
-            UntypedType = type;
+        
+        public Reg(DataType type, ClockDomain clockDom):base(type, clockDom) {
+            Name = () => "<unnamed reg>";
             ClockDom = clockDom;
         }
-        public static ref Reg<TData> New<TData>(TData type, ClockDomain? clockDom = null) where TData : DataType, IDataType<TData> {
+        public static ref Reg<TData> New<TData>(TData type, ClockDomain? clockDom = null, bool noClockDomainCheck = false) where TData : DataType, IDataType<TData> {
             clockDom ??= ScopedLocator.GetService<ClockDomain>();
+            Debug.Assert(clockDom != null);
 
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
             var componentModel = context.CurrentComponent!.InternalModel as ComponentBuildingModel;
 
-            var Reg = new Reg<TData>(type, clockDom);
+            var Reg = new Reg<TData>(type, clockDom) { 
+                NoClockDomainCheck = noClockDomainCheck
+            };
 
             var pointerStorage = componentModel.RegisterReg(Reg);
             return ref Unsafe.As<IReferenceTraceObject, Reg<TData>>(ref pointerStorage.Pointer);

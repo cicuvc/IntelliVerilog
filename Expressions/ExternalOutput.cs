@@ -44,7 +44,7 @@ namespace IntelliVerilog.Core.Expressions {
         }
         public override RightValue<Bool> this[int index] { 
             get {
-                throw new NotImplementedException();
+                return RValue[index];
             }
             set {
                 var analysisContext = IntelliVerilogLocator.GetService<AnalysisContext>()!;

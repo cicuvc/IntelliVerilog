@@ -1,0 +1,3 @@
+﻿namespace IntelliVerilog.Core.Analysis {
+
+}

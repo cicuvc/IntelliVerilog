@@ -586,9 +586,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
             }
             if(value is IRegRightValueWrapper regWrapper) {
                 var register = module.Registers.Find(e => {
-                    if (e.RegisterInfo is ClockDrivenRegister realRegister)
-                        return realRegister.BackRegister == regWrapper.UntyedReg;
-                    return false;
+                    return e.RegisterInfo == regWrapper.UntyedReg;
                 });
 
                 Debug.Assert(register != null);
@@ -778,26 +776,26 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
             foreach(var i in componentModel.UsedClockDomains) {
                 var registers = moduleAst.Registers.Where(e => {
                     if (e.RegisterInfo is ClockDrivenRegister realRegister)
-                        return realRegister.BackRegister.ClockDom == i;
+                        return realRegister.ClockDom == i;
                     return false;
                 });
 
                 if (registers.Count() == 0) continue;
 
-                var clock = moduleAst.IoPorts.Find(e => (e.DeclIoComponent is ClockDomainInput domainInput) && domainInput.SignalType == ClockDomainSignal.Clock);
+                var clock = moduleAst.IoPorts.Find(e => (e.DeclIoComponent is ClockDomainInput{ SignalType:ClockDomainSignal.Clock} domainInput) && domainInput.ClockDom == i);
 
                 var alwaysFF = new VerilogAlwaysFF(clock.Identifier) {
                     ClockPositiveEdge = i.ClockRiseEdge,
                     ResetPositiveEdge = i.ResetHighActive
                 };
                 if(i.Reset != null) {
-                    var reset = moduleAst.IoPorts.Find(e => (e.DeclIoComponent is ClockDomainInput domainInput) && domainInput.SignalType == ClockDomainSignal.Reset);
+                    var reset = moduleAst.IoPorts.Find(e => (e.DeclIoComponent is ClockDomainInput { SignalType: ClockDomainSignal.Reset } domainInput) && domainInput.ClockDom == i);
                     alwaysFF.ResetSignal = reset.Identifier;
                 }
 
                 alwaysFF.SubNodes.AddRange(ExpandBehaviorBlock(componentModel.Behavior.Root.FalseBranch, componentModel, moduleAst, (e) => {
                     if (e is PrimaryAssignment assignment) {
-                        return (assignment.LeftValue is ClockDrivenRegister realRegister) && (realRegister.BackRegister.ClockDom == i);
+                        return (assignment.LeftValue is ClockDrivenRegister realRegister) && (realRegister.ClockDom == i);
                     }
                     return true;
                 }));

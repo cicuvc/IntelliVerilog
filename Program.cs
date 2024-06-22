@@ -108,6 +108,7 @@ public class BehaviorContext {
     protected PrimaryExit m_EndOp;
     public bool IsInBranchContext => m_ActiveBranch.Count > 1;
     public BranchDesc Root => m_ActiveBranch[0];
+    public IEnumerable<BranchDesc> BranchStack => m_ActiveBranch;
     public BehaviorContext(CheckPointRecorder recorder) {
         m_Recorder = recorder;
         m_EndOp = new();
@@ -250,14 +251,7 @@ public unsafe class ReturnAddressTracker {
     }
 }
 public unsafe static class App {
-    public static void QK(object tpths, Range x) {
-        var returnAddress = ((nint*)(&x))[3];
-    }
     public static void Main() {
-        
-        //QK(new(), 1..2);
-
-
         Debugger.Break();
 
         IntelliVerilogLocator.RegisterService(ManagedDebugInfoService.Instance);
@@ -285,13 +279,16 @@ public unsafe static class App {
 
         var dummyClock = new DummyClockReset();
         var dummyReset = new DummyClockReset();
-        var clkDomain = new ClockDomain("clk", dummyClock) { 
+        var clkDomain = new ClockDomain("def", dummyClock) { 
+            Reset = dummyReset
+        };
+
+        var clkDom2 = new ClockDomain("ext", dummyClock) { 
             Reset = dummyReset
         };
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new DFF(3);
-
+            var adder = new DFF(3, clkDom2);
 
             var codeGen = new VerilogGenerator();
             var generatedModel = new Dictionary<ComponentModel, Components.Module>();

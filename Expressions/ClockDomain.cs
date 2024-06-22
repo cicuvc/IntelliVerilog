@@ -21,6 +21,9 @@ namespace IntelliVerilog.Core.Expressions {
             Name = name;
             Clock = clock;
         }
+        public bool IsSynchoroizedWith(ClockDomain? other) {
+            return other == this;
+        }
     }
     public static class ClockArea {
 

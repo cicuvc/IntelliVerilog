@@ -172,7 +172,7 @@ namespace IntelliVerilog.Core.Analysis {
         public BehaviorContext? Behavior { get; set; } 
         
         public abstract IEnumerable<ClockDomain> UsedClockDomains { get; }
-        public abstract IDictionary<IWireLike, WireLikeAuxInfo> WireLikeObjects { get; }
+        public abstract IDictionary<IWireLike, WireTrivalAux> WireLikeObjects { get; }
         public abstract IReadOnlyDictionary<IAssignableValue, AssignmentInfo> GenericAssignments { get; }
         public abstract IEnumerable<IUntypedConstructionPort> IoPortShape { get; } 
         public abstract IReadOnlyCollection<INamedStageExpression> IntermediateValues { get; }
@@ -302,13 +302,14 @@ namespace IntelliVerilog.Core.Analysis {
             return new WireAssignmentInfo(BackAssignable);
         }
     }
-    public class ClockDrivenRegister : RegisterDesc {
-        public Reg BackRegister { get; }
-        public ClockDrivenRegister(Reg register) : base(register.UntypedType, false) {
-            BackRegister = register;
+    public abstract class ClockDrivenRegister : RegisterDesc {
+        public ClockDomain ClockDom { get; }
+        public bool NoClockDomainCheck { get; set; } = false;
+        public ClockDrivenRegister(DataType type, ClockDomain clockDomain) : base(type, false) {
+            ClockDom = clockDomain;
         }
         public override AssignmentInfo CreateAssignmentInfo() {
-            return new RegAssignmentInfo(BackRegister);
+            return new RegAssignmentInfo(this);
         }
     }
     public class RegisterValue : AbstractValue {
@@ -373,9 +374,8 @@ namespace IntelliVerilog.Core.Analysis {
         }
     }
     public class RegAssignmentInfo : AssignmentInfo {
-        public Reg RegLeftValue => (Reg)UntypedLeftValue;
         public override bool RegisterPromotable => false;
-        public RegAssignmentInfo(Reg register) : base(register) {
+        public RegAssignmentInfo(ClockDrivenRegister register) : base(register) {
         }
         public virtual void AssignPort(AbstractValue value, SpecifiedRange range) {
             Add(new PrimaryAssignment(UntypedLeftValue, value, range, nint.Zero));
@@ -401,16 +401,7 @@ namespace IntelliVerilog.Core.Analysis {
     public interface IWireLike {
         Func<string> Name { get; set; }
     }
-    public record CombLogicDependency(IWireLike DependencyDestination, CombLogicDependency? Parent) {
-        
-    }
-    public class WireLikeAuxInfo {
-        public IWireLike Wire { get; }
-        public HashSet<CombLogicDependency> CombLogicDependencyMap { get; } = new();
-        public WireLikeAuxInfo(IWireLike port) {
-            Wire = port;
-        }
-    }
+
     public class ComponentBuildingModel : ComponentModel {
         protected HashSet<ClockDomain> m_ClockDomains = new();
         protected List<IUntypedConstructionPort> m_IoPortShape = new();
@@ -420,7 +411,7 @@ namespace IntelliVerilog.Core.Analysis {
         protected List<RegisterDesc> m_Registers = new();
         protected Dictionary<IAssignableValue, AssignmentInfo> m_GenericAssignments = new();
 
-        protected Dictionary<IWireLike, WireLikeAuxInfo> m_WireLikeObjects = new();
+        protected Dictionary<IWireLike, WireTrivalAux> m_WireLikeObjects = new();
         public Dictionary<IReferenceTraceObject, HeapPointer> ReferenceTraceObjects { get; } = new();
 
         public override IEnumerable<ClockDomain> UsedClockDomains => m_ClockDomains;
@@ -430,7 +421,7 @@ namespace IntelliVerilog.Core.Analysis {
         public override IReadOnlyCollection<INamedStageExpression> IntermediateValues => m_StagedValues;
         public override IReadOnlyDictionary<string, IntermediateValueDesc> IntermediateValueCount => m_ImmValueCounter;
         public override IReadOnlyDictionary<IAssignableValue, AssignmentInfo> GenericAssignments => m_GenericAssignments;
-        public override IDictionary<IWireLike, WireLikeAuxInfo> WireLikeObjects => m_WireLikeObjects;
+        public override IDictionary<IWireLike, WireTrivalAux> WireLikeObjects => m_WireLikeObjects;
 
         public ComponentBuildingModel(Type componentType, ComponentBase componentObject, object[] instParameters) : base(componentType, componentObject, instParameters) {
             
@@ -515,16 +506,24 @@ namespace IntelliVerilog.Core.Analysis {
             Behavior.Root.FalseBranch.InsertRange(0, rootSet);
 
             Behavior.Root.EnumerateDesc((e, branchPath) => {
-                if(e is PrimaryAssignment assignment) {
-                    if(assignment.LeftValue is CombPseudoRegister pseudoRegister) {
-                        if(pseudoRegister.BackAssignable is IWireLike wire) {
+                if (e is PrimaryAssignment assignment) {
+                    if (assignment.LeftValue is CombPseudoRegister pseudoRegister) {
+                        if (pseudoRegister.BackAssignable is IWireLike wire) {
                             if (m_WireLikeObjects.ContainsKey(wire)) {
                                 var ioPortAux = m_WireLikeObjects[wire];
 
                                 TrackOutputDependencyList(assignment.RightValue, ioPortAux);
                             }
                         }
-                        
+
+                    }
+                }
+            });
+
+            Behavior.Root.EnumerateDesc((e, branchPath) => {
+                if (e is PrimaryAssignment assignment) {
+                    if (assignment.LeftValue is ClockDrivenRegister realRegister) {
+
                     }
                 }
             });
@@ -549,7 +548,7 @@ namespace IntelliVerilog.Core.Analysis {
             //    }
             //}
 
-            foreach(var (wire,wireAux) in m_WireLikeObjects) {
+            foreach (var (wire,wireAux) in m_WireLikeObjects) {
                 if(wire is Wire wireObject) {
                     if (!m_GenericAssignments.ContainsKey(wireObject)) {
                         throw new NullReferenceException($"Missing drive for {wireObject.Name()}");
@@ -575,7 +574,7 @@ namespace IntelliVerilog.Core.Analysis {
             var pointerStorage = new HeapPointer(wire);
 
             ReferenceTraceObjects.Add(wire, pointerStorage);
-            m_WireLikeObjects.Add(wire, new(wire));
+            m_WireLikeObjects.Add(wire, new WireTrivalAux(wire));
 
             return pointerStorage;
         }
@@ -583,9 +582,9 @@ namespace IntelliVerilog.Core.Analysis {
             var pointerStorage = new HeapPointer(wire);
 
             ReferenceTraceObjects.Add(wire, pointerStorage);
-            m_WireLikeObjects.Add(wire, new(wire));
+            m_WireLikeObjects.Add(wire, new RegTrivalAux(wire));
 
-            m_Registers.Add(new ClockDrivenRegister(wire));
+            m_Registers.Add(wire);
 
             return pointerStorage;
         }
@@ -603,7 +602,7 @@ namespace IntelliVerilog.Core.Analysis {
             }
             if(port is IoComponent) {
                 if(port is IUntypedConstructionPort constructedInternalPort) {
-                    m_WireLikeObjects.Add(constructedInternalPort, new(constructedInternalPort));
+                    m_WireLikeObjects.Add(constructedInternalPort, new InternalPortTrivalAux(constructedInternalPort));
                     m_IoPortShape.Add(constructedInternalPort);
                 } else {
                     throw new NotSupportedException();
@@ -613,68 +612,35 @@ namespace IntelliVerilog.Core.Analysis {
             }
             throw new NotSupportedException();
         }
-        protected void DependencyPropagation(CombLogicDependency dependency, WireLikeAuxInfo info) {
-            if (m_WireLikeObjects.ContainsKey(dependency.DependencyDestination)) {
-                var wireAux = m_WireLikeObjects[dependency.DependencyDestination];
-                foreach (var i in wireAux.CombLogicDependencyMap) {
-                    if (i.DependencyDestination == info.Wire) {
-                        throw new InvalidOperationException("Combination logic loop detected");
-                    }
-                    var dependencyInfo = new CombLogicDependency(i.DependencyDestination, dependency);
-
-                    if (!info.CombLogicDependencyMap.Contains(dependencyInfo)) {
-                        info.CombLogicDependencyMap.Add(dependencyInfo);
-
-                        DependencyPropagation(dependencyInfo, info);
-                    }
-                }
-            } else {
-                if(dependency.DependencyDestination is IUntypedConstructionPort externalPort) {
-                    var componentModel = externalPort.Component.InternalModel;
-                    var externalAux = componentModel.WireLikeObjects[externalPort.InternalPort];
-
-                    foreach(var i in externalAux.CombLogicDependencyMap) {
-                        if(i.DependencyDestination is IUntypedConstructionPort { Direction : IoPortDirection.Input } internalInput) {
-                            var inputExtenalPort = internalInput.Location.TraceValue(externalPort.Component);
-
-                            Debug.Assert(inputExtenalPort != null);
-
-                            if (inputExtenalPort == info.Wire) {
-                                throw new InvalidOperationException("Combination logic loop detected");
-                            }
-                            var dependencyInfo = new CombLogicDependency(inputExtenalPort, i);
-
-                            if (!info.CombLogicDependencyMap.Contains(dependencyInfo)) {
-                                info.CombLogicDependencyMap.Add(dependencyInfo);
-
-                                DependencyPropagation(dependencyInfo, info);
-                            }
-
-                        }
-                    }
-                }
-            }
-        }
-        protected void TrackOutputDependencyList(AbstractValue value, WireLikeAuxInfo info, Action<AbstractValue>? callback = null) {
+        protected void TrackOutputDependencyList(AbstractValue value, WireTrivalAux info, Action<AbstractValue>? callback = null) {
             callback ??= e => {
                 TrackOutputDependencyList(e, info, callback);
             };
-            var depInfo = default(CombLogicDependency);
             if (value is IUntypedIoRightValueWrapper wrapper) {
-                depInfo = new CombLogicDependency((IUntypedConstructionPort)wrapper.UntypedComponent, null);
+                if(!m_WireLikeObjects.ContainsKey(wrapper.UntypedComponent)) {
+                    var component = ((IUntypedConstructionPort)wrapper.UntypedComponent).Component;
+                    var componentModel = component.InternalModel;
+                    var externalPort = (IUntypedConstructionPort)wrapper.UntypedComponent;
+                    var internalPort = externalPort.InternalPort;
+                    var internalPortAux = componentModel.WireLikeObjects[internalPort];
+
+                    foreach(var i in internalPortAux.Precursors) {
+                        if(i.Wire is IUntypedConstructionPort { Direction: IoPortDirection.Input } internalInput) {
+                            var external = internalInput.Location.TraceValue(component);
+
+                            m_WireLikeObjects[external].Connect(info);
+                        }
+                    }
+                } else {
+                    m_WireLikeObjects[wrapper.UntypedComponent].Connect(info);
+                }
             }
             if (value is IWireRightValueWrapper wireWrapper) {
-                depInfo = new CombLogicDependency(wireWrapper.UntyedWire, null);
+                m_WireLikeObjects[wireWrapper.UntyedWire].Connect(info);
             }
-            if(depInfo != null) {
-                info.CombLogicDependencyMap.Add(depInfo);
-                if(depInfo.DependencyDestination == info.Wire) {
-                    throw new InvalidOperationException("Combination logic loop detected");
-
-                }
-                DependencyPropagation(depInfo, info);
+            if (value is IRegRightValueWrapper regWrapper) {
+                m_WireLikeObjects[regWrapper.UntyedReg].Connect(info);
             }
-            
             value.EnumerateSubNodes(callback);
         }
         protected void AssignOutputExpression(IoComponent internalLeftValue, AbstractValue rightValue, SpecifiedRange range){
@@ -732,13 +698,8 @@ namespace IntelliVerilog.Core.Analysis {
             }
         }
         public void AssignReg(string name, Reg wire) {
-            var regDesc = m_Registers.Find(e => {
-                if(e is ClockDrivenRegister realRegister)
-                    return realRegister.BackRegister == wire;
-                return false;
-            });
-            Debug.Assert(regDesc != null);
-            regDesc.Name = wire.Name = () => name;
+            Debug.Assert(m_Registers.Contains(wire));
+            wire.Name = () => name;
 
             if(wire.ClockDom != null)
                 RegisterClockDomain(wire.ClockDom);
@@ -795,27 +756,12 @@ namespace IntelliVerilog.Core.Analysis {
                 var specRange = new SpecifiedRange(range, bits);
                 Debug.Assert(rightExpression != null);
 
-                var registerDesc = m_Registers.Find(e => {
-                    if (e is ClockDrivenRegister realRegister) return realRegister.BackRegister == register;
-                    return false;
-                });
+                Debug.Assert(m_Registers.Contains(register));
 
-                Debug.Assert(registerDesc != null);
+                Behavior.NotifyAssignment(returnAddress, register, rightExpression, specRange);
 
-                if (Behavior.IsInBranchContext) {
-                    Behavior.NotifyAssignment(returnAddress, registerDesc, rightExpression, specRange);
-                } else {
-                    if (!m_GenericAssignments.ContainsKey(registerDesc)) {
-                        m_GenericAssignments.Add(registerDesc, register.CreateAssignmentInfo());
-                    }
-
-                    var ioAssign = (WireAssignmentInfo)m_GenericAssignments[registerDesc];
-                    ioAssign.AssignPort(rightExpression, specRange);
-
-                    //var ioAuxInfo = m_WireLikeObjects[register];
-
-                    //TrackOutputDependencyList(rightExpression, ioAuxInfo);
-                }
+                var ioAuxInfo = m_WireLikeObjects[register];
+                TrackOutputDependencyList(rightExpression, ioAuxInfo);
 
                 return;
             }
@@ -835,11 +781,10 @@ namespace IntelliVerilog.Core.Analysis {
 
                     var ioAssign = (WireAssignmentInfo)m_GenericAssignments[wireLhs];
                     ioAssign.AssignPort(rightExpression, specRange);
-
-                    var ioAuxInfo = m_WireLikeObjects[wireLhs];
-
-                    TrackOutputDependencyList(rightExpression, ioAuxInfo);
                 }
+
+                var ioAuxInfo = m_WireLikeObjects[wireLhs];
+                TrackOutputDependencyList(rightExpression, ioAuxInfo);
 
                 return;
             }
@@ -860,7 +805,7 @@ namespace IntelliVerilog.Core.Analysis {
                             }
                             var wireObject = (IWireLike)leftAssignable;
                             if (!m_WireLikeObjects.ContainsKey(wireObject)) {
-                                m_WireLikeObjects.Add(wireObject, new WireLikeAuxInfo(wireObject));
+                                m_WireLikeObjects.Add(wireObject, new ExternalPortTrivalAux(leftExternalInput));
                             }
 
                             var wireSet = (SubComponentPortAssignmentInfo)m_GenericAssignments[leftAssignable];
@@ -901,13 +846,18 @@ namespace IntelliVerilog.Core.Analysis {
                                     if(specRange.BitWidth != ioComponentLhs.UntypedRValue.Type.WidthBits) {
                                         throw new InvalidOperationException("Bit width mismatch");
                                     }
+                                    var wireObject = (IWireLike)invertedOutput.InternalOut;
+                                    if (!m_WireLikeObjects.ContainsKey(wireObject)) {
+                                        m_WireLikeObjects.Add(wireObject, new ExternalPortTrivalAux((IUntypedConstructionPort)invertedOutput.InternalOut));
+                                    }
 
                                     if (Behavior.IsInBranchContext) {
                                         Behavior!.NotifyAssignment(returnAddress, (IAssignableValue)invertedOutput.InternalOut, ioComponentLhs.UntypedRValue, specRange);
-                                    } else {
-                                        
+                                    } else { 
                                         AssignOutputExpression(invertedOutput.InternalOut, ioComponentLhs.UntypedRValue, specRange );
                                     }
+
+                                   
                                     break;
                                 }
                             }
@@ -931,7 +881,6 @@ namespace IntelliVerilog.Core.Analysis {
                             if (Behavior.IsInBranchContext) {
                                 Behavior!.NotifyAssignment(returnAddress, (IAssignableValue)ioComponentLhs, rightExpression, specRange);
                             } else {
-
                                 AssignOutputExpression(ioComponentLhs, rightExpression, specRange);
                             }
 
@@ -963,5 +912,136 @@ namespace IntelliVerilog.Core.Analysis {
             }).SelectMany(e=>e.Value).Select(e=>(e.RightValue, e.SelectedRange));
         }
     }
+    
+    public class WireTrivalAux {
+        public IWireLike Wire { get; }
+        protected HashSet<WireTrivalAux> m_SuccessorSet = new();
+        protected HashSet<WireTrivalAux> m_PrecursorSet = new();
+        public IEnumerable<WireTrivalAux> Successors => m_SuccessorSet;
+        public IEnumerable<WireTrivalAux> Precursors => m_PrecursorSet;
+        public WireTrivalAux(IWireLike wire) {
+            Wire = wire;
+        }
+        protected virtual void OnAddPrecursorSet(WireTrivalAux other) {
+            if(other == this) {
+                throw new Exception("Combination logic loop detected");
+            }
+        }
+        protected virtual IEnumerable<WireTrivalAux> GetMergePrecursorSet() {
+            return Precursors;
+        }
+        protected virtual IEnumerable<WireTrivalAux> GetMergeSuccessorSet() {
+            return Successors;
+        }
+        protected virtual void OnAddSuccessorSet(WireTrivalAux other) { }
+        public void Connect(WireTrivalAux next) {
+            var prevGroup = GetMergePrecursorSet().Append(this);
+            var succGroup = next.GetMergeSuccessorSet().Append(next);
+            foreach(var i in prevGroup) {
+                foreach(var j in succGroup) {
+                    i.OnAddSuccessorSet(j);
+                    i.m_SuccessorSet.Add(j);
 
+                    j.OnAddPrecursorSet(i);
+                    j.m_PrecursorSet.Add(i);
+                }
+            }
+        }
+        public bool FindSelfAndSuccessor(Predicate<IWireLike> predicate) {
+            if (predicate(Wire)) return true;
+            return m_SuccessorSet.Where(e => predicate(e.Wire)).Count() != 0;
+        }
+        public bool FindSelfAndPrecursor(Predicate<IWireLike> predicate) {
+            if (predicate(Wire)) return true;
+            return m_PrecursorSet.Where(e => predicate(e.Wire)).Count() != 0;
+        }
+    }
+    public interface IAuxWithClockDomain {
+        ClockDomain? ClockDom { get; set; }
+        bool NoClockDomainCheck { get; }
+        
+    }
+    public class RegTrivalAux : WireTrivalAux, IAuxWithClockDomain {
+        public Reg Register => (Reg)Wire;
+        public ClockDomain? ClockDom { get; set; }
+        public bool NoClockDomainCheck => Register.NoClockDomainCheck;
+        public RegTrivalAux(Reg wire) : base(wire) {
+            ClockDom = wire.ClockDom;
+        }
+        protected override IEnumerable<WireTrivalAux> GetMergePrecursorSet() {
+            return Array.Empty<WireTrivalAux>();
+        }
+        protected override IEnumerable<WireTrivalAux> GetMergeSuccessorSet() {
+            return Array.Empty<WireTrivalAux>();
+        }
+        protected override void OnAddPrecursorSet(WireTrivalAux other) {
+            //base.OnAddPrecursorSet(other);
+
+            if(other is IAuxWithClockDomain otherWithDomain) {
+                if (NoClockDomainCheck || otherWithDomain.NoClockDomainCheck) return;
+                if (!(otherWithDomain.ClockDom?.IsSynchoroizedWith(Register.ClockDom) ?? true)) {
+                    throw new Exception("Clock domoain cross detected");
+                }
+            }
+        }
+        protected override void OnAddSuccessorSet(WireTrivalAux other) {
+            //base.OnAddSuccessorSet(other);
+
+            if (other is IAuxWithClockDomain otherWithDomain) {
+                if (NoClockDomainCheck || otherWithDomain.NoClockDomainCheck) return;
+                if (!(otherWithDomain.ClockDom?.IsSynchoroizedWith(Register.ClockDom) ?? true)) {
+                    throw new Exception("Clock domoain cross detected");
+                }
+            }
+        }
+    }
+    public class InternalPortTrivalAux : WireTrivalAux, IAuxWithClockDomain {
+        public IUntypedConstructionPort InternalPort { get; }
+        public bool NoClockDomainCheck => false;
+        public InternalPortTrivalAux(IWireLike wire) : base(wire) {
+            InternalPort = (IUntypedConstructionPort)wire;
+        }
+
+        public ClockDomain? ClockDom { get ; set; }
+        protected override void OnAddSuccessorSet(WireTrivalAux other) {
+            base.OnAddSuccessorSet(other);
+
+            if (InternalPort.Direction == IoPortDirection.Input) {
+                if (other is IAuxWithClockDomain clockDomain) {
+                    if (NoClockDomainCheck || clockDomain.NoClockDomainCheck) return;
+                    ClockDom ??= clockDomain.ClockDom;
+                    if (!(ClockDom?.IsSynchoroizedWith(clockDomain.ClockDom) ?? true)) {
+                        throw new Exception("Clock domain cross detected");
+                    }
+                }
+            }
+        }
+        protected override void OnAddPrecursorSet(WireTrivalAux other) {
+            base.OnAddPrecursorSet(other);
+
+            if(InternalPort.Direction == IoPortDirection.Output) {
+                if (other is IAuxWithClockDomain clockDomain) {
+                    if (NoClockDomainCheck || clockDomain.NoClockDomainCheck) return;
+                    ClockDom ??= clockDomain.ClockDom;
+                    if (!(ClockDom?.IsSynchoroizedWith(clockDomain.ClockDom) ?? true)) {
+                        throw new Exception("Clock domain cross detected");
+                    }
+                }
+            }
+        }
+    }
+    public class ExternalPortTrivalAux: WireTrivalAux, IAuxWithClockDomain {
+        public ComponentModel InternalModel { get; }
+        public InternalPortTrivalAux InnerAux { get; }
+        public bool NoClockDomainCheck => false;
+        public ClockDomain? ClockDom {
+            get => InnerAux.ClockDom;
+            set => throw new NotImplementedException(); 
+        }
+
+        public ExternalPortTrivalAux(IUntypedConstructionPort externalPort) : base(externalPort) {
+            InternalModel = externalPort.Component.InternalModel;
+            InnerAux = (InternalPortTrivalAux)InternalModel.WireLikeObjects[externalPort.InternalPort];
+        }
+    }
 }

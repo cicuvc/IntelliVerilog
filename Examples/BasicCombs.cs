@@ -26,19 +26,19 @@ namespace IntelliVerilog.Core.Examples {
         Input<Bool> en,
         Output<UInt> outValue
         )> {
-        public DFF(uint width) {
+        public DFF(uint width, ClockDomain dom2) {
             ref var io = ref UseDefaultIo(new() { 
                 inValue = width.Bits(),
                 outValue = width.Bits()
             });
 
             ref var register = ref Reg.New(width.Bits());
+            ref var r2 = ref Reg.New(width.Bits(), dom2, true);
 
-            if (io.en.RValue) {
-                register = io.inValue.RValue;
-            }
+            r2 = register.RValue + io.inValue;
+            register = io.inValue.RValue;
 
-            io.outValue = register.RValue;
+            io.outValue = r2.RValue;
         }
     }
     public class MuxDemo : Module<
@@ -69,7 +69,7 @@ namespace IntelliVerilog.Core.Examples {
 
             io.output = pmod.IO.outValue;
 
-            if (io.en.RValue) {
+            if (io.en.RValue & pmod.IO.outValue[0]) {
                 wireData = io.b.RValue;
             }
         }
