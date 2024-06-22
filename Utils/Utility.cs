@@ -15,6 +15,13 @@ namespace IntelliVerilog.Core.Utils {
             while ((length--) > 0) sb.Append(m_HexDigits[m_Random.Next(m_HexDigits.Length)]);
             return sb.ToString();
         }
-        
+        public static string GetArraySignature(object[] array) {
+            var sb = new StringBuilder();
+            sb.Append($"{array.Length:X}");
+            foreach(var i in array) {
+                sb.Append($"_{i.GetHashCode():X02}");
+            }
+            return sb.ToString();
+        }
     }
 }

@@ -171,8 +171,8 @@ namespace IntelliVerilog.Core.Analysis {
         protected Type m_ComponentType;
         protected ComponentBase m_ComponentObject;
         protected HashSet<ComponentBase> m_SubComponents = new();
+        public string ModelName { get; }
         public BehaviorContext? Behavior { get; set; } 
-        
         public abstract IEnumerable<ClockDomain> UsedClockDomains { get; }
         public abstract IDictionary<IWireLike, WireTrivalAux> WireLikeObjects { get; }
         public abstract IReadOnlyDictionary<IAssignableValue, AssignmentInfo> GenericAssignments { get; }
@@ -184,6 +184,8 @@ namespace IntelliVerilog.Core.Analysis {
             m_ComponentType = componentType;
             m_ComponentObject = componentObject;
             m_Parameters = instParameters;
+
+            ModelName = $"{componentType.Name}_{Utility.GetArraySignature(instParameters)}";
         }
         public abstract IEnumerable<(AbstractValue assignValue, SpecifiedRange range)> QueryAssignedSubComponentIoValues(IUntypedConstructionPort declComponent, ComponentBase subModule);
     }
@@ -634,6 +636,9 @@ namespace IntelliVerilog.Core.Analysis {
                         if(i.Wire is IUntypedConstructionPort { Direction: IoPortDirection.Input } internalInput) {
                             var external = internalInput.Location.TraceValue(component);
 
+                            if (!m_WireLikeObjects.ContainsKey(external)) {
+                                m_WireLikeObjects.Add(external, new ExternalPortTrivalAux((IUntypedConstructionPort)external));
+                            }
                             m_WireLikeObjects[external].Connect(info);
                         }
                     }

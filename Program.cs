@@ -288,7 +288,7 @@ public unsafe static class App {
         };
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new Adder(3);
+            var adder = new MuxDemo(3);
 
             var codeGen = new VerilogGenerator();
             var generatedModel = new Dictionary<ComponentModel, Components.Module>();

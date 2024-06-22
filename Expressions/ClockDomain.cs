@@ -24,6 +24,9 @@ namespace IntelliVerilog.Core.Expressions {
         public bool IsSynchoroizedWith(ClockDomain? other) {
             return other == this;
         }
+        public override int GetHashCode() {
+            return Name.GetHashCode();
+        }
     }
     public static class ClockArea {
 

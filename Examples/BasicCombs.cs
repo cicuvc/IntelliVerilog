@@ -53,25 +53,17 @@ namespace IntelliVerilog.Core.Examples {
                 a = bits.Bits(),
                 b = bits.Bits(),
                 output = bits.Bits(),
-                o2 = bits.Bits()
+                o2 = (bits-1).Bits()
             });
 
-            ref var wireOutput = ref Wire.New(bits.Bits());
-            ref var wireData = ref Wire.New(bits.Bits());
+            var ident1 = new IdentiMod(bits);
+            var ident2 = new IdentiMod(bits - 1);
 
-            io.o2 = io.a.RValue;
-            
-            var pmod = new IdentiMod(bits);
-            pmod.IO.inValue = wireOutput.RValue;
+            io.output = ident1.IO.outValue;
+            io.o2 = ident2.IO.outValue;
 
-            wireOutput = io.b.RValue + wireData;
-            wireData = io.a.RValue;
-
-            io.output = pmod.IO.outValue;
-
-            if (io.en.RValue & pmod.IO.outValue[0]) {
-                wireData = io.b.RValue;
-            }
+            ident1.IO.inValue = io.a;
+            ident2.IO.inValue = io.b[1..];
         }
     }
 }

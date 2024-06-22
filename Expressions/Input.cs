@@ -228,7 +228,7 @@ namespace IntelliVerilog.Core.Expressions {
             }
         }
         public override RightValue<TData> this[Range range] {
-            get => throw new NotImplementedException();
+            get => RValue[range];
             set {
                 throw new InvalidOperationException();
             }

@@ -184,7 +184,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         public override bool NoLineEnd => true;
         public override void GenerateCode(VerilogGenerationContext context) {
             context.Append("module ");
-            context.Append(BackModule.GetType().Name);
+            context.Append(BackModule.InternalModel.ModelName);
             context.AppendLine("(");
 
             using (context.BeginIndent()) {
@@ -257,7 +257,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
             Name = instanceName;
         }
         public override void GenerateCode(VerilogGenerationContext context) {
-            context.Append(SubModule.GetType().Name);
+            context.Append(SubModule.InternalModel.ModelName);
             context.Append(" ");
             context.Append(Name);
             context.AppendLine("(");
