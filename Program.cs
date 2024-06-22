@@ -20,6 +20,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Numerics;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
@@ -65,6 +66,11 @@ public class PrimaryCondEval : PrimaryOp {
     public PrimaryCondEval(nint returnAddress, AbstractValue condition) : base(returnAddress) {
         Condition = condition;
     }
+}
+
+public class SwitchDesc: BehaviorDesc {
+    public ulong[] CandidateValues { get; }
+    public int CurrentValue { get; }
 }
 
 public class BranchDesc: BehaviorDesc {
@@ -203,15 +209,6 @@ public class BehaviorContext {
         } else {
             m_ActiveBranch.Last().CurrentList.Add(new PrimaryAssignment(leftValue, rightValue, range, returnAddress));
         }
-    }
-}
-public class CA {
-    public virtual void SetV(int x) {
-        var rat = IntelliVerilogLocator.GetService<ReturnAddressTracker>();
-
-        var ra = rat.TrackReturnAddress(this);
-
-        Console.WriteLine(ra);
     }
 }
 public unsafe class ReturnAddressTracker {

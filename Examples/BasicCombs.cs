@@ -41,29 +41,28 @@ namespace IntelliVerilog.Core.Examples {
             io.outValue = r2.RValue;
         }
     }
+    public enum TestEnum {
+        Hello = 5
+    }
     public class MuxDemo : Module<
         (Input<UInt> a,
         Input<UInt> b,
         Input<Bool> en,
         Output<UInt> output,
-        Output<UInt> o2)
+        Output<Bool> o2)
         > {
         public MuxDemo(uint bits) {
             ref var io = ref UseDefaultIo(new() {
                 a = bits.Bits(),
                 b = bits.Bits(),
                 output = bits.Bits(),
-                o2 = (bits-1).Bits()
             });
 
-            var ident1 = new IdentiMod(bits);
-            var ident2 = new IdentiMod(bits - 1);
-
-            io.output = ident1.IO.outValue;
-            io.o2 = ident2.IO.outValue;
-
-            ident1.IO.inValue = io.a;
-            ident2.IO.inValue = io.b[1..];
+            io.o2 = io.a.RValue[0];
+            io.output = TestEnum.Hello.Const();
+            if(io.b.RValue == TestEnum.Hello.Const()) {
+                io.output = io.b.RValue;
+            }
         }
     }
 }

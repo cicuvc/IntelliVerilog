@@ -21,10 +21,10 @@ namespace IntelliVerilog.Core.Expressions {
         ILeftValueOps<TData> 
         where TData : DataType, IDataType<TData> {
 
-        protected IoRightValueWrapper<TData>? m_RightValueCache = null;
+        protected IoRightValueWrapper<TData>? m_RightValueCache = null!;
         public IoRightValueWrapper<TData> RValue {
             get {
-                if (m_RightValueCache == null) {
+                if (m_RightValueCache is null) {
                     if(this is IUntypedConstructionPort constructed) {
                         m_RightValueCache = new(constructed);
                     } else {
@@ -70,6 +70,15 @@ namespace IntelliVerilog.Core.Expressions {
         public static implicit operator LeftValue<TData>(IoComponent<TData> component) {
             throw new NotImplementedException();
         }
+
+        public static RightValue<Bool> operator ==(IoComponent<TData> lhs, IoComponent<TData> rhs) {
+            return lhs.RValue == rhs.RValue;
+        }
+
+        public static RightValue<Bool> operator !=(IoComponent<TData> lhs, IoComponent<TData> rhs) {
+            throw new NotImplementedException();
+        }
+
         public RightValue<Bool> this[uint index] {
             get => RValue[index];
             set => RValue[index] = value;

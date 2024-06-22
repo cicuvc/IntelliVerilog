@@ -10,6 +10,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -345,6 +346,18 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
         public override string Operator => " + ";
     }
+    public class VerilogEqualExpression : VerilogBinaryOperator {
+        public VerilogEqualExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " == ";
+    }
+    public class VerilogNonEqualExpression : VerilogBinaryOperator {
+        public VerilogNonEqualExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " != ";
+    }
     public class VerilogSubExpression : VerilogBinaryOperator {
         public VerilogSubExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
         }
@@ -419,12 +432,12 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         }
     }
     public class VerilogConst : VerilogAstNode {
-        public decimal Value { get; }
+        public BigInteger Value { get; }
         public int BitWidth { get; }
 
         public override bool NoLineEnd => false;
 
-        public VerilogConst(int bits, decimal value) {
+        public VerilogConst(int bits, BigInteger value) {
             BitWidth = bits;
             Value = value;
         }
@@ -515,8 +528,10 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     return new VerilogAndExpression(lhs, rhs);
                 if (value is BoolOrExpression)
                     return new VerilogOrExpression(lhs, rhs);
+                if (value is BoolEqualExpression) return new VerilogEqualExpression(lhs, rhs);
+                if (value is BoolNonEqualExpression) return new VerilogNonEqualExpression(lhs, rhs);
 
-                if(value is UIntAddExpression) {
+                if (value is UIntAddExpression) {
                     return new VerilogAddExpression(lhs, rhs);
                 }
                 if (value is UIntSubExpression) {
@@ -528,6 +543,8 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 if (value is UIntDivExpression) {
                     return new VerilogDivExpression(lhs, rhs);
                 }
+                if (value is UIntEqualExpression) return new VerilogEqualExpression(lhs, rhs);
+                if (value is UIntNonEqualExpression) return new VerilogNonEqualExpression(lhs, rhs);
             }
 
             if(value is IUntypedUnaryExpression unaryExpression) {

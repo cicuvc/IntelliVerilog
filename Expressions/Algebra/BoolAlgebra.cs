@@ -8,38 +8,45 @@ using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.Expressions.Algebra {
     public class BoolAddExpression : BinaryExpression<Bool> {
-        public BoolAddExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, Bool.CreateDefault(), Bool.CreateDefault().DefaultAlgebra) {
+        public BoolAddExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
         }
     }
     public class BoolSubExpression : BinaryExpression<Bool> {
-        public BoolSubExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, Bool.CreateDefault(), Bool.CreateDefault().DefaultAlgebra) {
+        public BoolSubExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
         }
     }
     public class BoolMulExpression : BinaryExpression<Bool> {
-        public BoolMulExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, Bool.CreateDefault(), Bool.CreateDefault().DefaultAlgebra) {
+        public BoolMulExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
         }
     }
     public class BoolDivExpression : BinaryExpression<Bool> {
-        public BoolDivExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, Bool.CreateDefault(), Bool.CreateDefault().DefaultAlgebra) {
+        public BoolDivExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
         }
     }
     public class BoolXorExpression : BinaryExpression<Bool> {
-        public BoolXorExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, Bool.CreateDefault(), Bool.CreateDefault().DefaultAlgebra) {
+        public BoolXorExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
         }
     }
     public class BoolAndExpression : BinaryExpression<Bool> {
-        public BoolAndExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, Bool.CreateDefault(), Bool.CreateDefault().DefaultAlgebra) {
+        public BoolAndExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
         }
     }
     public class BoolOrExpression : BinaryExpression<Bool> {
-        public BoolOrExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, Bool.CreateDefault(), Bool.CreateDefault().DefaultAlgebra) {
+        public BoolOrExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
         }
     }
     public class BoolNotExpression : UnaryExpression<Bool> {
-        public BoolNotExpression(RightValue<Bool> lhs) : base(lhs, Bool.CreateDefault(), Bool.CreateDefault().DefaultAlgebra) {
+        public BoolNotExpression(RightValue<Bool> lhs) : base(lhs) {
         }
     }
-
+    public class BoolEqualExpression : BinaryRelationExpression<Bool> {
+        public BoolEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        }
+    }
+    public class BoolNonEqualExpression : BinaryRelationExpression<Bool> {
+        public BoolNonEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        }
+    }
     public class BoolAlgebra : IAlg<Bool> {
         public static BoolAlgebra Instance { get; } = new();
         public RightValue<Bool> AddExpression(RightValue<Bool> lhs, RightValue<Bool> rhs)
@@ -55,6 +62,9 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
         public RightValue<Bool> DivExpression(RightValue<Bool> lhs, RightValue<Bool> rhs)
             => new BoolDivExpression(lhs, rhs);
 
+        public RightValue<Bool> EqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs)
+            => new BoolEqualExpression(lhs, rhs);
+
         public AbstractValue GetCombinationValue(AbstractValue[] expressions) {
             throw new NotImplementedException();
         }
@@ -69,6 +79,9 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
 
         public RightValue<Bool> MulExpression(RightValue<Bool> lhs, RightValue<Bool> rhs)
             => new BoolMulExpression(lhs, rhs);
+
+        public RightValue<Bool> NonEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs)
+            => new BoolNonEqualExpression(lhs, rhs);
 
         public RightValue<Bool> NotExpression(RightValue<Bool> lhs)
             => new BoolNotExpression(lhs);

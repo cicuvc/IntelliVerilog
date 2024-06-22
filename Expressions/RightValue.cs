@@ -15,10 +15,21 @@ public interface IRecursiveExpression {
     void EnumerateSubNodes(Action<AbstractValue> callback);
 }
 public abstract class AbstractValue :IEquatable<AbstractValue>, IRecursiveExpression {
-    public DataType Type { get; }
+    protected DataType m_ValueType;
+    public virtual DataType Type { 
+        get=> m_ValueType;
+        set {
+            if (m_ValueType.IsWidthSpecified) {
+                throw new InvalidOperationException("Data type already specified");
+            }
+            m_ValueType = value;
+
+            EnumerateSubNodes(PropagateDataType);
+        }
+    }
     public IAlg Algebra { get; }
     public AbstractValue(DataType type, IAlg? algebra = null) {
-        Type = type;
+        m_ValueType = type;
         Algebra = algebra ?? type.DefaultAlgebra;
     }
     public abstract bool Equals(AbstractValue? other);
@@ -30,6 +41,10 @@ public abstract class AbstractValue :IEquatable<AbstractValue>, IRecursiveExpres
     }
 
     public abstract void EnumerateSubNodes(Action<AbstractValue> callback);
+
+    private void PropagateDataType(AbstractValue subNode) {
+        subNode.Type = m_ValueType;
+    }
 }
 
 public class GeneralCombinationExpression : AbstractValue{
@@ -72,7 +87,7 @@ public class GeneralBitsSelectionExpression : AbstractValue, IUntypedUnaryExpres
     }
 }
 
-public interface IRightValueOps<TValue, TData> where TValue: IRightValueOps<TValue, TData> where TData: DataType {
+public interface IRightValueOps<TValue, TData> where TValue: IRightValueOps<TValue, TData> where TData: DataType, IDataType<TData> {
     static abstract RightValue<TData> operator +(TValue lhs, TValue rhs);
     static abstract RightValue<TData> operator -(TValue lhs, TValue rhs);
     static abstract RightValue<TData> operator /(TValue lhs, TValue rhs);
@@ -80,14 +95,16 @@ public interface IRightValueOps<TValue, TData> where TValue: IRightValueOps<TVal
     static abstract RightValue<TData> operator ^(TValue lhs, TValue rhs);
     static abstract RightValue<TData> operator &(TValue lhs, TValue rhs);
     static abstract RightValue<TData> operator |(TValue lhs, TValue rhs);
+    static abstract RightValue<Bool> operator ==(TValue lhs, TValue rhs);
+    static abstract RightValue<Bool> operator !=(TValue lhs, TValue rhs);
 }
 
-public interface IRightValueSelectionOps<TData> where TData: DataType {
+public interface IRightValueSelectionOps<TData> where TData: DataType, IDataType<TData> {
     public RightValue<Bool> this[uint index] { get; }
     public RightValue<Bool> this[int index] { get; }
     public RightValue<TData> this[Range range] { get; }
 }
-public interface ILeftValueOps<TData> where TData : DataType {
+public interface ILeftValueOps<TData> where TData : DataType, IDataType<TData> {
     public RightValue<Bool> this[uint index] { set; }
     public RightValue<Bool> this[int index] { set; }
     public RightValue<TData> this[Range range] { set; }
@@ -95,7 +112,7 @@ public interface ILeftValueOps<TData> where TData : DataType {
 
 
 
-public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValue<TData>, TData>, IRightValueSelectionOps<TData> where TData: DataType {
+public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValue<TData>, TData>, IRightValueSelectionOps<TData> where TData: DataType,IDataType<TData> {
     public IAlg<TData> TypedAlgebra => (IAlg<TData>)Algebra;
     public TData TypedType => (TData)Type;
     public RightValue(TData type, IAlg? algebra = null) : base(type, algebra) {
@@ -141,6 +158,20 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
 
         return model.Behavior.NotifyConditionEvaluation(returnAddress, lhs);
     }
+    public static implicit operator RightValue<TData>(uint value) {
+        if(value.Const() is RightValue<TData> result) {
+            return result;
+        }
+        throw new InvalidCastException($"Incompatible cast from unsigned int to {TData.CreateDefault()}");
+    }
+
+    public static RightValue<Bool> operator ==(RightValue<TData> lhs, RightValue<TData> rhs) {
+        return lhs.TypedAlgebra.EqualExpression(lhs, rhs);
+    }
+
+    public static RightValue<Bool> operator !=(RightValue<TData> lhs, RightValue<TData> rhs) {
+        return lhs.TypedAlgebra.NonEqualExpression(lhs, rhs);
+    }
 
     public RightValue<Bool> this[uint index] {
         get => throw new NotImplementedException();
@@ -158,14 +189,14 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
 
 
 
-public abstract class LeftValue<TData> : RightValue<TData>, ILeftValueOps<TData> where TData : DataType {
+public abstract class LeftValue<TData> : RightValue<TData>, ILeftValueOps<TData> where TData : DataType, IDataType<TData> {
     public LeftValue(TData type, IAlg? algebra = null) : base(type, algebra) {
     }
 
     
 }
 
-public class CastExpression<TDest> : RightValue<TDest>, IUntypedUnaryExpression where TDest : DataType {
+public class CastExpression<TDest> : RightValue<TDest>, IUntypedUnaryExpression where TDest : DataType, IDataType<TDest> {
     public AbstractValue SourceValue { get; }
 
     public AbstractValue UntypedValue => SourceValue;

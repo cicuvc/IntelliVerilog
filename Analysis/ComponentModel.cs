@@ -217,7 +217,7 @@ namespace IntelliVerilog.Core.Analysis {
         SubValueStageDesc StageDesc { get; }
     }
     
-    public class NamedStageExpression<TData> : RightValue<TData> , INamedStageExpression where TData : DataType {
+    public class NamedStageExpression<TData> : RightValue<TData> , INamedStageExpression where TData : DataType,IDataType<TData> {
         public AbstractValue InternalValue { get; }
         public SubValueStageDesc StageDesc { get; }
         public NamedStageExpression(AbstractValue internalValue, SubValueStageDesc desc) : base((TData)internalValue.Type, internalValue.Algebra) {
@@ -881,10 +881,13 @@ namespace IntelliVerilog.Core.Analysis {
 
                             Debug.Assert(rightExpression != null);
 
-
-                            var bits = (int)((IDataTypeSpecifiedPort)ioComponentLhs).UntypedType.WidthBits;
+                            var lhsType = ((IDataTypeSpecifiedPort)ioComponentLhs).UntypedType;
+                            var bits = (int)lhsType.WidthBits;
                             var specRange = new SpecifiedRange(range, bits);
 
+                            if (!rightExpression.Type.IsWidthSpecified) {
+                                rightExpression.Type = lhsType.CreateWithWidth((uint)bits);
+                            }
                             if (specRange.BitWidth != rightExpression.Type.WidthBits) {
                                 throw new InvalidOperationException("Bit width mismatch");
                             }

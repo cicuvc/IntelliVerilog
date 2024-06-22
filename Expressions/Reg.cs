@@ -146,5 +146,13 @@ namespace IntelliVerilog.Core.Expressions {
         public static RightValue<TData> operator ^(Reg<TData> lhs, Reg<TData> rhs) {
             return lhs.RValue ^ rhs.RValue;
         }
+
+        public static RightValue<Bool> operator ==(Reg<TData> lhs, Reg<TData> rhs) {
+            return lhs.RValue == rhs.RValue;
+        }
+
+        public static RightValue<Bool> operator !=(Reg<TData> lhs, Reg<TData> rhs) {
+            return lhs.RValue != rhs.RValue;
+        }
     }
 }

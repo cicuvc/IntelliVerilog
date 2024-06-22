@@ -9,7 +9,7 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
 
     public interface IAlg {
     }
-    public interface IAlg<T>: IAlg where T:DataType{
+    public interface IAlg<T>: IAlg where T:DataType, IDataType<T> {
         RightValue<T> AddExpression(RightValue<T> lhs, RightValue<T> rhs);
         RightValue<T> SubExpression(RightValue<T> lhs, RightValue<T> rhs);
         RightValue<T> MulExpression(RightValue<T> lhs, RightValue<T> rhs);
@@ -18,6 +18,8 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
         RightValue<T> AndExpression(RightValue<T> lhs, RightValue<T> rhs);
         RightValue<T> OrExpression(RightValue<T> lhs, RightValue<T> rhs);
         RightValue<T> NotExpression(RightValue<T> lhs);
+        RightValue<Bool> EqualExpression(RightValue<T> lhs, RightValue<T> rhs);
+        RightValue<Bool> NonEqualExpression(RightValue<T> lhs, RightValue<T> rhs);
 
         void SetSelectionValue(RightValue<T> lhs, int index, RightValue<T> value);
         void SetSelectionValue(RightValue<T> lhs, Range range, RightValue<T> value);
