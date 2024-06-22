@@ -76,6 +76,7 @@ public interface IBranchLikeDesc {
     bool NextState();
     IEnumerable<BehaviorDesc> UnwindBranch();
     IEnumerable<BehaviorDesc> GetSubNodes();
+    IEnumerable<IEnumerable<BehaviorDesc>> GetBranches();
     void EnumerateDesc(Action<BehaviorDesc, List<IBranchLikeDesc>> callback, List<IBranchLikeDesc>? branchPath = null) {
         branchPath ??= new();
 
@@ -90,14 +91,22 @@ public interface IBranchLikeDesc {
     }
 }
 public class SwitchDesc<TEnum>: SwitchDesc where TEnum : unmanaged, Enum {
+    protected static Random m_RandomGenerator = new();
     public TEnum[] CandidateValues { get; }
     public override BigInteger this[int index] {
         get {
             return StaticEnum<TEnum>.ConvertEnumValue(CandidateValues[index]);
         }
     }
-    public SwitchDesc(TEnum[] values, AbstractValue switchCond, nint returnAddress):base(values.Length, switchCond, returnAddress) {
-        CandidateValues = values;
+    public SwitchDesc(TEnum[] values, AbstractValue switchCond, nint returnAddress):base(values.Length + 1, switchCond, returnAddress) {
+        var value = (ulong)m_RandomGenerator.NextInt64();
+        var enumType = typeof(TEnum);
+
+        while (values.Contains((TEnum)Enum.ToObject(enumType, value))) {
+            value = (ulong)m_RandomGenerator.NextInt64();
+        }
+
+        CandidateValues = values.Append((TEnum)Enum.ToObject(enumType, value)).ToArray();
     }
 }
 public abstract class SwitchDesc: BehaviorDesc , IBranchLikeDesc {
@@ -178,6 +187,10 @@ public abstract class SwitchDesc: BehaviorDesc , IBranchLikeDesc {
     public IEnumerable<BehaviorDesc> GetSubNodes() {
         return m_BehaviorLists.SelectMany(e => e);
     }
+
+    public IEnumerable<IEnumerable<BehaviorDesc>> GetBranches() {
+        return m_BehaviorLists;
+    }
 }
 
 public class BranchDesc: BehaviorDesc, IBranchLikeDesc {
@@ -199,7 +212,9 @@ public class BranchDesc: BehaviorDesc, IBranchLikeDesc {
     public BranchDesc(PrimaryCondEval condition) {
         Condition = condition;
     }
-
+    public IEnumerable<IEnumerable<BehaviorDesc>> GetBranches() {
+        return new List<BehaviorDesc>[] { m_TrueBranch, m_FalseBranch};
+    }
 
     public IEnumerable<BehaviorDesc> GetSubNodes() => TrueBranch.Concat(FalseBranch);
     public bool FindCandidateExit(Predicate<BehaviorDesc> predicate) {

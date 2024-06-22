@@ -901,7 +901,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     var caseNode = new VerilogCase(condition, switchDesc.BranchList.Length);
 
                     for(var i  = 0; i < switchDesc.BranchList.Length; i++) {
-                        caseNode.Constants[i] = new VerilogConst(bits, switchDesc[i]);
+                        caseNode.Constants[i] = i != switchDesc.BranchList.Length - 1 ? new VerilogConst(bits, switchDesc[i]) : new VerilogPureIdentifier("default");
                         caseNode.Branches[i] = ExpandBehaviorBlock(switchDesc.BranchList[i], compModel, moduleAst, allowEmit);
                     }
 

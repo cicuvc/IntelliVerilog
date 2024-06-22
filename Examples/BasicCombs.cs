@@ -60,11 +60,19 @@ namespace IntelliVerilog.Core.Examples {
             });
 
             io.o2 = io.a.RValue[0];
-            io.output = io.a.RValue.ToSwitch<TestEnum>() switch {
-                TestEnum.Hello => io.a.RValue,
-                TestEnum.World => io.b.RValue,
-            };
-            
+
+            io.output = io.a.RValue;
+
+            switch (io.a.RValue.ToSwitch<TestEnum>()) {
+                case TestEnum.Hello: {
+                    io.output = io.a.RValue;
+                    break;
+                }
+                case TestEnum.World: {
+                    io.output = io.b.RValue;
+                    break;
+                }
+            }
 
 
         }

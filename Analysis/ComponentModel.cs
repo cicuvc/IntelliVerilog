@@ -438,18 +438,14 @@ namespace IntelliVerilog.Core.Analysis {
             var assignedPorts = new Dictionary<IAssignableValue, Bitset>();
 
             foreach (var i in descriptors) {
-                if(i is BranchDesc branch) {
-                    foreach(var j in CheckLatch(branch.TrueBranch, assignmentInfo)) {
-                        if (!assignedPorts.ContainsKey(j.Key)) {
-                            assignedPorts.Add(j.Key, j.Value);
+                if(i is IBranchLikeDesc branch) {
+                    foreach(var u in branch.GetBranches()) {
+                        foreach (var j in CheckLatch(u, assignmentInfo)) {
+                            if (!assignedPorts.ContainsKey(j.Key)) {
+                                assignedPorts.Add(j.Key, j.Value);
+                            }
+                            assignedPorts[j.Key].InplaceAnd(j.Value);
                         }
-                        assignedPorts[j.Key].InplaceAnd(j.Value);
-                    }
-                    foreach (var j in CheckLatch(branch.FalseBranch, assignmentInfo)) {
-                        if (!assignedPorts.ContainsKey(j.Key)) {
-                            assignedPorts.Add(j.Key, j.Value);
-                        }
-                        assignedPorts[j.Key].InplaceAnd(j.Value);
                     }
                 }
             }
@@ -548,13 +544,13 @@ namespace IntelliVerilog.Core.Analysis {
                 }
             });
 
-            //var checkResult = CheckLatch(Behavior.Root.FalseBranch, combAlwaysPortList);
-            //foreach (var (k, v) in combAlwaysPortList) {
-            //    var fullyAssigned = checkResult[k];
-            //    if (!v.Equals(fullyAssigned)) {
-            //        throw new Exception("Latch detected");
-            //    }
-            //}
+            var checkResult = CheckLatch(Behavior.TypedRoot.FalseBranch, combAlwaysPortList);
+            foreach (var (k, v) in combAlwaysPortList) {
+                var fullyAssigned = checkResult[k];
+                if (!v.Equals(fullyAssigned)) {
+                    throw new Exception("Latch detected");
+                }
+            }
 
             foreach (var (wire,wireAux) in m_WireLikeObjects) {
                 if(wire is Wire wireObject) {
