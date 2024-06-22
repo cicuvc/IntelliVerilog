@@ -1,6 +1,7 @@
 ﻿using Iced.Intel;
 using IntelliVerilog.Core.Analysis;
 using IntelliVerilog.Core.Components;
+using IntelliVerilog.Core.DataTypes;
 using IntelliVerilog.Core.Expressions;
 using IntelliVerilog.Core.Expressions.Algebra;
 using System;
@@ -463,6 +464,40 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
             if (Values.Length > 1) context.Append("}");
         }
     }
+    public class VerilogCase: VerilogAstNode {
+        public VerilogAstNode Condition { get; set; }
+        public IEnumerable<VerilogAstNode>[] Branches { get; }
+        public VerilogAstNode[] Constants { get; }
+
+        public override bool NoLineEnd => true;
+
+        public VerilogCase(VerilogAstNode condition, int branchCount) {
+            Condition = condition;
+            Constants = new VerilogAstNode[branchCount];
+            Branches = new IEnumerable<VerilogAstNode>[branchCount];
+        }
+        public override void GenerateCode(VerilogGenerationContext context) {
+            context.Append("case(");
+            Condition.GenerateCode(context);
+            context.AppendLine(")");
+
+            using (context.BeginIndent()) {
+                for(var i=0;i< Constants.Length; i++) {
+                    Constants[i].GenerateCode(context);
+                    context.AppendLine(": begin");
+                    using (context.BeginIndent()) { 
+                        foreach(var j in Branches[i]) {
+                            j.GenerateCode(context);
+                            context.AppendLine(j.NoLineEnd ? "" : ";");
+                        }
+                    }
+                    context.AppendLine("end");
+                }
+            }
+
+            context.AppendLine("endcase");
+        }
+    }
     public class VerilogBranch: VerilogAstNode {
         public VerilogAstNode Condition { get; }
         public List<VerilogAstNode> TrueBranches { get; } = new();
@@ -577,7 +612,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 var desc = namedStaged.StageDesc;
                 var index = desc.IndexOf(namedStaged);
                 var identifier = new VerilogPureIdentifier(desc.InstanceName);
-                var selection = new VerilogRangeSelection(identifier, new(index, index), desc.Count);
+                var selection = new VerilogRangeSelection(identifier, new(index, index+1), desc.Count);
 
 
                 return selection;
@@ -792,7 +827,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
             var alwaysCombBlock = new VerilogAlwaysComb();
 
-            alwaysCombBlock.SubNodes.AddRange(ExpandBehaviorBlock(componentModel.Behavior.Root.FalseBranch, componentModel, moduleAst, (e) => { 
+            alwaysCombBlock.SubNodes.AddRange(ExpandBehaviorBlock(componentModel.Behavior.TypedRoot.FalseBranch, componentModel, moduleAst, (e) => { 
                 if(e is PrimaryAssignment assignment) {
                     return !(assignment.LeftValue is ClockDrivenRegister);
                 }
@@ -822,7 +857,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     alwaysFF.ResetSignal = reset.Identifier;
                 }
 
-                alwaysFF.SubNodes.AddRange(ExpandBehaviorBlock(componentModel.Behavior.Root.FalseBranch, componentModel, moduleAst, (e) => {
+                alwaysFF.SubNodes.AddRange(ExpandBehaviorBlock(componentModel.Behavior.TypedRoot.FalseBranch, componentModel, moduleAst, (e) => {
                     if (e is PrimaryAssignment assignment) {
                         return (assignment.LeftValue is ClockDrivenRegister realRegister) && (realRegister.ClockDom == i);
                     }
@@ -859,6 +894,18 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     var leftValueSelection = new VerilogRangeSelection(leftValue, assignment.SelectedRange, (int)assignment.LeftValue.UntypedType.WidthBits);
                     var assignmentNode = new VerilogInAlwaysAssignment(leftValueSelection, value, noBlocking);
                     return (VerilogAstNode)assignmentNode;
+                }
+                if(e is SwitchDesc switchDesc) {
+                    var bits = (int)switchDesc.SwitchValue.Type.WidthBits;
+                    var condition = ConvertExpressions(switchDesc.SwitchValue, compModel, moduleAst);
+                    var caseNode = new VerilogCase(condition, switchDesc.BranchList.Length);
+
+                    for(var i  = 0; i < switchDesc.BranchList.Length; i++) {
+                        caseNode.Constants[i] = new VerilogConst(bits, switchDesc[i]);
+                        caseNode.Branches[i] = ExpandBehaviorBlock(switchDesc.BranchList[i], compModel, moduleAst, allowEmit);
+                    }
+
+                    return (VerilogAstNode)caseNode;
                 }
                 throw new NotImplementedException();
             });

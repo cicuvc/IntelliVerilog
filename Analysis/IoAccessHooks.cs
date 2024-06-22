@@ -75,6 +75,8 @@ namespace IntelliVerilog.Core.Analysis {
             var managedDebugService = IntelliVerilogLocator.GetService<ManagedDebugInfoService>()!;
             var localName = managedDebugService.QueryLocalName(methodInfo, localIndex);
 
+            localName ??= managedDebugService.GetAutoIncLocalName();
+
             var analysisContext = IntelliVerilogLocator.GetService<AnalysisContext>()!;
             var buildingModel = analysisContext.CurrentComponent.InternalModel as ComponentBuildingModel;
 

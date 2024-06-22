@@ -42,7 +42,8 @@ namespace IntelliVerilog.Core.Examples {
         }
     }
     public enum TestEnum {
-        Hello = 5
+        Hello = 5,
+        World = 6
     }
     public class MuxDemo : Module<
         (Input<UInt> a,
@@ -59,10 +60,13 @@ namespace IntelliVerilog.Core.Examples {
             });
 
             io.o2 = io.a.RValue[0];
-            io.output = TestEnum.Hello.Const();
-            if(io.b.RValue == TestEnum.Hello.Const()) {
-                io.output = io.b.RValue;
-            }
+            io.output = io.a.RValue.ToSwitch<TestEnum>() switch {
+                TestEnum.Hello => io.a.RValue,
+                TestEnum.World => io.b.RValue,
+            };
+            
+
+
         }
     }
 }

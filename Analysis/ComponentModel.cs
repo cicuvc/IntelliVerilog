@@ -439,7 +439,6 @@ namespace IntelliVerilog.Core.Analysis {
 
             foreach (var i in descriptors) {
                 if(i is BranchDesc branch) {
-
                     foreach(var j in CheckLatch(branch.TrueBranch, assignmentInfo)) {
                         if (!assignedPorts.ContainsKey(j.Key)) {
                             assignedPorts.Add(j.Key, j.Value);
@@ -491,7 +490,8 @@ namespace IntelliVerilog.Core.Analysis {
                                 if (m_WireLikeObjects.ContainsKey(wire)) {
                                     var ioAuxInfo = m_WireLikeObjects[wire];
                                     foreach (var k in branchPath) {
-                                        TrackOutputDependencyList(k.Condition.Condition, ioAuxInfo);
+                                        if(k.ConditionExpression != null)
+                                            TrackOutputDependencyList(k.ConditionExpression, ioAuxInfo);
                                     }
                                 }
                             }
@@ -511,7 +511,7 @@ namespace IntelliVerilog.Core.Analysis {
                     }
                 }
             });
-            Behavior.Root.FalseBranch.InsertRange(0, rootSet);
+            Behavior.TypedRoot.FalseBranch.InsertRange(0, rootSet);
 
             Behavior.Root.EnumerateDesc((e, branchPath) => {
                 if (e is PrimaryAssignment assignment) {

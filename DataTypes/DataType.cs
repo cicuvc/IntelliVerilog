@@ -135,6 +135,12 @@ namespace IntelliVerilog.Core.DataTypes {
         static StaticEnum() {
             m_Encoder = GetEncoder();
         }
+        public static ulong TransformEnumValue(TEnum value) {
+            return ((ulong)m_Encoder.ConvertEnumValue(value));
+        }
+        public static ulong[] GetEnumValues() {
+            return Enum.GetValues<TEnum>().Select(TransformEnumValue).ToArray();
+        }
         protected static StaticEnumEncoder GetEncoder() {
             var type = typeof(TEnum);
             var encoderType = type.GetCustomAttribute<EnumEncodeTypeAttribute>()?.Encoder ?? typeof(StaticEnumSequentialEncoder);

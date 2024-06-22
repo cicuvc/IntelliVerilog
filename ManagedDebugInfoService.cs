@@ -8,6 +8,7 @@ namespace IntelliVerilog.Core;
 
 public class ManagedDebugInfoService {
     public static ManagedDebugInfoService Instance { get; } = new();
+    private static ulong m_AutoIncName = 0;
     protected Dictionary<System.Reflection.Module, IPdbFile?> m_PdbCache = new();
     private static string? LookupLocalName(IPdbLocalScope scope, int index) {
         foreach (var i in scope.Variables) {
@@ -18,6 +19,10 @@ public class ManagedDebugInfoService {
             if (result != null) return result;
         }
         return null;
+    }
+    public string GetAutoIncLocalName() {
+        m_AutoIncName++;
+        return $"loc_{m_AutoIncName:X}";
     }
     public string? QueryLocalName(MethodBase method, int localIndex) {
         var module = method.Module;

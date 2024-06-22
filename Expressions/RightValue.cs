@@ -185,6 +185,14 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
         get => new CastExpression<TData>((TData)Type.CreateWithWidth((uint)range.GetOffsetAndLength((int)Type.WidthBits).Length), GetBitSelection(range));
         set => throw new NotImplementedException();
     }
+    public TEnum ToSwitch<TEnum>() where TEnum : unmanaged, Enum {
+        var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
+        var model = context.CurrentComponent.InternalModel as ComponentBuildingModel;
+        var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
+        var returnAddress = returnTracker.TrackReturnAddress(this, paramIndex: 2);
+
+        return model.Behavior.NotifySwitchEnter<TEnum>(returnAddress, this);
+    }
 }
 
 

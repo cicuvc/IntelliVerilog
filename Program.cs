@@ -68,12 +68,119 @@ public class PrimaryCondEval : PrimaryOp {
     }
 }
 
-public class SwitchDesc: BehaviorDesc {
-    public ulong[] CandidateValues { get; }
-    public int CurrentValue { get; }
+public interface IBranchLikeDesc {
+    AbstractValue? ConditionExpression { get; }
+    List<BehaviorDesc> CurrentList { get; }
+    CheckPoint<bool>? CheckPoint { get; }
+    bool FindCandidateExit(Predicate<BehaviorDesc> predicate);
+    bool NextState();
+    IEnumerable<BehaviorDesc> UnwindBranch();
+    IEnumerable<BehaviorDesc> GetSubNodes();
+    void EnumerateDesc(Action<BehaviorDesc, List<IBranchLikeDesc>> callback, List<IBranchLikeDesc>? branchPath = null) {
+        branchPath ??= new();
+
+        branchPath.Add(this);
+
+        foreach (var i in GetSubNodes()) {
+            if (i is IBranchLikeDesc branch) branch.EnumerateDesc(callback, branchPath);
+            else callback(i, branchPath);
+        }
+
+        branchPath.RemoveLast();
+    }
+}
+public class SwitchDesc<TEnum>: SwitchDesc where TEnum : unmanaged, Enum {
+    public TEnum[] CandidateValues { get; }
+    public override BigInteger this[int index] {
+        get {
+            return StaticEnum<TEnum>.ConvertEnumValue(CandidateValues[index]);
+        }
+    }
+    public SwitchDesc(TEnum[] values, AbstractValue switchCond, nint returnAddress):base(values.Length, switchCond, returnAddress) {
+        CandidateValues = values;
+    }
+}
+public abstract class SwitchDesc: BehaviorDesc , IBranchLikeDesc {
+    public AbstractValue SwitchValue { get; }
+    public nint ReturnAddress { get; }
+
+    public int CurrentListIndex { get; set; }
+    public int LastCandidateListIndex { get; set; } = -1;
+    public int CurrentExitIndex { get; set; } = -1;
+    public CheckPoint<bool>? CheckPoint { get; set; }
+    protected List<BehaviorDesc>[] m_BehaviorLists;
+    protected bool[] m_IsFalsePath;
+
+    public List<BehaviorDesc>[] BranchList => m_BehaviorLists;
+
+    public abstract BigInteger this[int index] { get; }
+    public List<BehaviorDesc> CurrentList => m_BehaviorLists[CurrentListIndex];
+
+    public AbstractValue? ConditionExpression => SwitchValue;
+
+    public SwitchDesc(int valueCount,AbstractValue switchCond, nint returnAddress) {
+        SwitchValue = switchCond;
+        ReturnAddress = returnAddress;
+        m_BehaviorLists = new List<BehaviorDesc>[valueCount];
+        m_IsFalsePath = new bool[valueCount];
+        for(var i = 0; i < valueCount; i++) {
+            m_BehaviorLists[i] = new();
+        }
+    }
+    public bool FindCandidateExit(Predicate<BehaviorDesc> predicate) {
+        var index = m_BehaviorLists[0].FindIndex(predicate);
+        if (index < 0) return false;
+
+        if(index < CurrentExitIndex) { // find overlapping
+            return false;
+        }
+        if(index > CurrentExitIndex) {
+            var falseMatchList = m_BehaviorLists[LastCandidateListIndex];
+            m_IsFalsePath[LastCandidateListIndex] = true;
+
+            Debug.Assert(falseMatchList.Count == 0);
+
+            falseMatchList.Add(m_BehaviorLists[0][CurrentExitIndex]);
+            CurrentExitIndex = index;
+        }
+
+        LastCandidateListIndex = CurrentListIndex;
+
+        return true;
+    }
+    public bool NextState() {
+        if (CurrentListIndex == m_BehaviorLists.Length - 1) return true;
+        CurrentListIndex++;
+        return false;
+    }
+   
+
+    public IEnumerable<BehaviorDesc> UnwindBranch() {
+        if(CurrentExitIndex == -1) {
+            CurrentExitIndex = m_BehaviorLists[0].Count;
+        }
+        var result = m_BehaviorLists[0].GetRange(CurrentExitIndex, m_BehaviorLists[0].Count - CurrentExitIndex);
+        m_BehaviorLists[0].RemoveRange(CurrentExitIndex, m_BehaviorLists[0].Count - CurrentExitIndex);
+
+        for(var i=0;i< m_BehaviorLists.Length; i++) {
+            if (m_IsFalsePath[i]) {
+                var index = m_BehaviorLists[0].IndexOf(m_BehaviorLists[i][0]);
+                for(var j=index+1;j< m_BehaviorLists[0].Count; j++) {
+                    m_BehaviorLists[i].Add(m_BehaviorLists[0][j]);
+                }
+            }
+        }
+
+        result.Insert(0, this);
+        return result;
+    }
+
+    public IEnumerable<BehaviorDesc> GetSubNodes() {
+        return m_BehaviorLists.SelectMany(e => e);
+    }
 }
 
-public class BranchDesc: BehaviorDesc {
+public class BranchDesc: BehaviorDesc, IBranchLikeDesc {
     public PrimaryCondEval Condition { get; }
     public int FirstMergeOpIndex { get; set; } = -1;
     public bool ProcessTrueBranch { get; set; } = true;
@@ -84,20 +191,47 @@ public class BranchDesc: BehaviorDesc {
 
     public List<BehaviorDesc> TrueBranch => m_TrueBranch;
     public List<BehaviorDesc> FalseBranch => m_FalseBranch;
+
+    public CheckPoint<bool>? CheckPoint => Condition.CheckPoint;
+
+    public AbstractValue? ConditionExpression => Condition?.Condition;
+
     public BranchDesc(PrimaryCondEval condition) {
         Condition = condition;
     }
-    public void EnumerateDesc(Action<BehaviorDesc, List<BranchDesc>> callback, List<BranchDesc>? branchPath = null) {
-        branchPath ??= new();
 
-        if(Condition != null) branchPath.Add(this);
 
-        foreach (var i in TrueBranch.Concat(FalseBranch)) {
-            if (i is BranchDesc branch) branch.EnumerateDesc(callback, branchPath);
-            else callback(i, branchPath);
+    public IEnumerable<BehaviorDesc> GetSubNodes() => TrueBranch.Concat(FalseBranch);
+    public bool FindCandidateExit(Predicate<BehaviorDesc> predicate) {
+        var index = BackList.FindIndex(predicate);
+        if (index >= 0) {
+            FirstMergeOpIndex = index;
+            return true;
         }
+        return false;
+    }
 
-        if (Condition != null) branchPath.RemoveLast();
+    public bool NextState() {
+        if (ProcessTrueBranch) {
+            ProcessTrueBranch = false;
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    public IEnumerable<BehaviorDesc> UnwindBranch() {
+        Condition.CheckPoint?.Dispose();
+
+        if (FirstMergeOpIndex < 0)
+            FirstMergeOpIndex = TrueBranch.Count;
+
+        var postList = TrueBranch.GetRange(FirstMergeOpIndex, TrueBranch.Count - FirstMergeOpIndex);
+        postList.Insert(0, this);
+
+        TrueBranch.RemoveRange(FirstMergeOpIndex, TrueBranch.Count - FirstMergeOpIndex);
+
+        return postList;
     }
 }
 public static class ListExtensions {
@@ -108,13 +242,13 @@ public static class ListExtensions {
     }
 }
 public class BehaviorContext {
-    
-    protected List<BranchDesc> m_ActiveBranch = new();
+    protected List<IBranchLikeDesc> m_ActiveBranch = new();
     protected CheckPointRecorder m_Recorder;
     protected PrimaryExit m_EndOp;
     public bool IsInBranchContext => m_ActiveBranch.Count > 1;
-    public BranchDesc Root => m_ActiveBranch[0];
-    public IEnumerable<BranchDesc> BranchStack => m_ActiveBranch;
+    public IBranchLikeDesc Root => m_ActiveBranch[0];
+    public BranchDesc TypedRoot => (BranchDesc)m_ActiveBranch[0];
+    public IEnumerable<IBranchLikeDesc> BranchStack => m_ActiveBranch;
     public BehaviorContext(CheckPointRecorder recorder) {
         m_Recorder = recorder;
         m_EndOp = new();
@@ -135,13 +269,33 @@ public class BehaviorContext {
         for(var i= m_ActiveBranch.Count - 1; i >= 0; i--) {
             var currentBranch = m_ActiveBranch[i];
 
-            var index = currentBranch.BackList.FindIndex(predicate);
-            if(index >= 0) {
-                currentBranch.FirstMergeOpIndex = index;
-                return true;
-            }
+            if (currentBranch.FindCandidateExit(predicate)) return true;
         }
         return false;
+    }
+    public TEnum NotifySwitchEnter<TEnum>(nint returnAddress, AbstractValue value) where TEnum:unmanaged, Enum{
+        if (UnwindBranches(e => {
+            if (e is SwitchDesc branch) {
+                return branch.ReturnAddress == returnAddress && branch.SwitchValue.Equals(value);
+            }
+            return false;
+        })) {
+            ProcessBranchMerge();
+
+            throw new UnreachableException();
+        } else {
+            var enumValues = Enum.GetValues<TEnum>();
+            var branchDesc = new SwitchDesc<TEnum>(enumValues, value, returnAddress);
+            m_ActiveBranch.Add(branchDesc);
+
+            Interlocked.MemoryBarrier();
+
+            var checkpoint = m_Recorder.MakeCheckPoint(true);
+
+            branchDesc.CheckPoint = checkpoint;
+            
+            return branchDesc.CandidateValues[branchDesc.CurrentListIndex];
+        }
     }
     public bool NotifyConditionEvaluation(nint returnAddress, AbstractValue condition) {
         if (UnwindBranches(e => {
@@ -172,27 +326,18 @@ public class BehaviorContext {
 
         var desc = m_ActiveBranch.Last();
 
-        if (desc.ProcessTrueBranch) {
-            desc.ProcessTrueBranch = false;
-            m_Recorder.RestoreCheckPoint(desc.Condition.CheckPoint!, false);
-
-            throw new UnreachableException("What?");
-        } else {
+        if (desc.NextState()) {
             m_ActiveBranch.RemoveAt(m_ActiveBranch.Count - 1);
-            desc.Condition.CheckPoint!.Dispose();
 
             var currentContext = m_ActiveBranch.Last();
 
-            if (desc.FirstMergeOpIndex < 0)
-                desc.FirstMergeOpIndex = desc.TrueBranch.Count;
-
-            currentContext.CurrentList.Add(desc);
-            for (var i = desc.FirstMergeOpIndex; i < desc.TrueBranch.Count; i++) {
-                currentContext.CurrentList.Add(desc.TrueBranch[i]);
-            }
-            desc.TrueBranch.RemoveRange(desc.FirstMergeOpIndex, desc.TrueBranch.Count - desc.FirstMergeOpIndex);
+            currentContext.CurrentList.AddRange(desc.UnwindBranch());
 
             ProcessBranchMerge();
+        } else {
+            m_Recorder.RestoreCheckPoint(desc.CheckPoint!, false);
+
+            throw new UnreachableException("What?");
         }
     }
     public void NotifyAssignment(nint returnAddress, IAssignableValue leftValue, AbstractValue rightValue, SpecifiedRange range) {
