@@ -546,8 +546,9 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     var ioRef = module.IoPorts.Find(e => e.DeclIoComponent == ioComponent);
                     return new VerilogPureIdentifier(ioRef.Name);
                 }
+
                 
-                if (model.SubComponents.SelectMany(e => e.Value).Contains(iUntyped.Component)) {
+                if (model.OverlappedObjects.Where(e => (e.Value is SubComponentDesc componentDesc) && componentDesc.Contains(iUntyped.Component)).Count() != 0) {
                     var wireDecl = module.SubModuleOutputMap[ioComponent];
                     return wireDecl ;
                 }
@@ -556,9 +557,10 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 
             }
             if (value is INamedStageExpression namedStaged) {
-                var count = model.IntermediateValueCount[namedStaged.BaseName].Count;
-                var identifier = new VerilogPureIdentifier(namedStaged.BaseName);
-                var selection = new VerilogRangeSelection(identifier, new(namedStaged.Index,(namedStaged.Index + 1)), count);
+                var desc = namedStaged.StageDesc;
+                var index = desc.IndexOf(namedStaged);
+                var identifier = new VerilogPureIdentifier(desc.InstanceName);
+                var selection = new VerilogRangeSelection(identifier, new(index, index), desc.Count);
 
 
                 return selection;
@@ -629,8 +631,17 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 }
             }
 
-            foreach(var i in componentModel.IntermediateValueCount) {
-                moduleAst.Contents.Add(new VerilogWireDef(i.Key, i.Value.UntypedType?.WidthBits ?? 1,new int[] { i.Value.Count }));
+            var stageValueMap = new Dictionary<string, VerilogWireDef>();
+            foreach (var (instName, instGroup) in componentModel.OverlappedObjects) {
+                if (!(instGroup is SubValueStageDesc subStageDesc)) continue;
+
+                var stageValueWire = new VerilogWireDef(instName, (subStageDesc.UntypedType.WidthBits), new int[] { subStageDesc.Count });
+                moduleAst.Contents.Add(stageValueWire);
+
+                stageValueMap.Add(instName, stageValueWire);
+
+                
+
             }
 
             moduleAst.Contents.Add(new VerilogEmptyLine());
@@ -641,8 +652,9 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 moduleAst.Contents.Add(registerDef);
             }
 
-            foreach(var (instName, instGroup) in componentModel.SubComponents) {
-                var subModel = instGroup[0].InternalModel;
+            foreach(var (instName, instGroup) in componentModel.OverlappedObjects) {
+                if (!(instGroup is SubComponentDesc subComponentInstGroup)) continue;
+                var subModel = subComponentInstGroup[0].InternalModel;
 
                 foreach (var portInfo in subModel.IoPortShape) {
                     if(portInfo.Direction == IoPortDirection.Output) {
@@ -659,8 +671,8 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
                         moduleAst.Contents.Add(wireDef);
 
-                        for (var j=0;j< instGroup.Count; j++) {
-                            var externalOutput = path.TraceValue(instGroup[j]);
+                        for (var j=0;j< subComponentInstGroup.Count; j++) {
+                            var externalOutput = path.TraceValue(subComponentInstGroup[j]);
                             var selection = new VerilogRangeSelection(wireDef.Identifier, new(j,(j + 1)), instGroup.Count);
                             
                             moduleAst.SubModuleOutputMap.Add(externalOutput, selection);
@@ -675,17 +687,16 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
             moduleAst.Contents.Add(new VerilogEmptyLine());
 
-            foreach (var i in componentModel.IntermediateValues) {
-                var count = componentModel.IntermediateValueCount[i.BaseName].Count;
-                var identifier = new VerilogPureIdentifier(i.BaseName);
-                var selection = new VerilogRangeSelection(identifier, new(i.Index,(i.Index + 1)), count);
+            foreach (var (instName, instGroup) in componentModel.OverlappedObjects) {
+                if (!(instGroup is SubValueStageDesc subStageDesc)) continue;
 
-
-                var value = ConvertExpressions(i.InternalValue, componentModel, moduleAst);
-                moduleAst.Contents.Add(new VeriloAssignment(selection, value));
+                var stageValueWire = stageValueMap[instName];
+                for (var i = 0; i < subStageDesc.Count; i++) {
+                    var selection = new VerilogRangeSelection(stageValueWire.Identifier, new(i, (i + 1)), subStageDesc.Count);
+                    var value = ConvertExpressions(subStageDesc[i].InternalValue, componentModel, moduleAst);
+                    moduleAst.Contents.Add(new VeriloAssignment(selection, value));
+                }
             }
-
-            moduleAst.Contents.Add(new VerilogEmptyLine());
 
             foreach (var (wire,wireAux) in componentModel.WireLikeObjects) {
                 var assignable = default(IAssignableValue);
@@ -723,7 +734,8 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
             moduleAst.Contents.Add(new VerilogEmptyLine());
 
-            foreach (var (instName, instGroup) in componentModel.SubComponents) {
+            foreach (var (instName, instGroup) in componentModel.OverlappedObjects) {
+                //if (!(instGroup is SubComponentDesc subComponentInstGroup)) continue;
                 for(var j=0;j< instGroup.Count; j++) {
                     if (instGroup[j] is Module subModule) {
                         var subModel = subModule.InternalModel;

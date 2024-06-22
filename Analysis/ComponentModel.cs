@@ -4,6 +4,7 @@ using IntelliVerilog.Core.Expressions;
 using IntelliVerilog.Core.Expressions.Algebra;
 using IntelliVerilog.Core.Utils;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -163,6 +164,7 @@ namespace IntelliVerilog.Core.Analysis {
             UntypedType = type;
         }
     }
+    
 
     public abstract class ComponentModel {
         protected object[] m_Parameters;
@@ -175,11 +177,9 @@ namespace IntelliVerilog.Core.Analysis {
         public abstract IDictionary<IWireLike, WireTrivalAux> WireLikeObjects { get; }
         public abstract IReadOnlyDictionary<IAssignableValue, AssignmentInfo> GenericAssignments { get; }
         public abstract IEnumerable<IUntypedConstructionPort> IoPortShape { get; } 
-        public abstract IReadOnlyCollection<INamedStageExpression> IntermediateValues { get; }
-        public abstract IReadOnlyDictionary<string, IntermediateValueDesc> IntermediateValueCount { get; }
         public abstract IEnumerable<RegisterDesc> Registers { get; }
         public ComponentBase ReferenceModule => m_ComponentObject;
-        public abstract IReadOnlyDictionary<string, SubComponentDesc> SubComponents { get; }
+        public abstract IReadOnlyDictionary<string, IOverlappedObjectDesc> OverlappedObjects { get; }
         public ComponentModel(Type componentType, ComponentBase componentObject, object[] instParameters) {
             m_ComponentType = componentType;
             m_ComponentObject = componentObject;
@@ -212,22 +212,22 @@ namespace IntelliVerilog.Core.Analysis {
     }
     public interface INamedStageExpression {
         AbstractValue InternalValue { get; }
-        string BaseName { get; set; }
-        int Index { get; set; }
+        SubValueStageDesc StageDesc { get; }
     }
     
     public class NamedStageExpression<TData> : RightValue<TData> , INamedStageExpression where TData : DataType {
         public AbstractValue InternalValue { get; }
-        public string BaseName { get; set; }
-        public int Index { get; set; }
-        public NamedStageExpression(AbstractValue internalValue, string baseName, int index) : base((TData)internalValue.Type, internalValue.Algebra) {
+        public SubValueStageDesc StageDesc { get; }
+        public NamedStageExpression(AbstractValue internalValue, SubValueStageDesc desc) : base((TData)internalValue.Type, internalValue.Algebra) {
             InternalValue = internalValue;
-            BaseName = baseName;
-            Index = index;
+            StageDesc = desc;
         }
 
         public override bool Equals(AbstractValue? other) {
-            throw new NotImplementedException();
+            if(other is NamedStageExpression<TData> stageExpr) {
+                return stageExpr.StageDesc == StageDesc && stageExpr.InternalValue.Equals(InternalValue);
+            }
+            return false;
         }
 
         public override void EnumerateSubNodes(Action<AbstractValue> callback) {
@@ -240,7 +240,7 @@ namespace IntelliVerilog.Core.Analysis {
             ComponentObject = component;
         }
     }
-    public class SubComponentDesc : List<ComponentBase>{
+    public class SubComponentDesc : List<ComponentBase>, IOverlappedObjectDesc {
         public string InstanceName { get; }
         public SubComponentDesc(string instanceName) {
             InstanceName = instanceName;
@@ -401,13 +401,21 @@ namespace IntelliVerilog.Core.Analysis {
     public interface IWireLike {
         Func<string> Name { get; set; }
     }
-
+    public interface IOverlappedObjectDesc:IList,IEnumerable {
+        string InstanceName { get; }
+    }
+    public class SubValueStageDesc:List<INamedStageExpression>, IOverlappedObjectDesc {
+        public string InstanceName { get; }
+        public DataType UntypedType { get; }
+        public SubValueStageDesc(string instanceName,DataType type) {
+            InstanceName = instanceName;
+            UntypedType = type;
+        }
+    }
     public class ComponentBuildingModel : ComponentModel {
         protected HashSet<ClockDomain> m_ClockDomains = new();
         protected List<IUntypedConstructionPort> m_IoPortShape = new();
-        protected Dictionary<string, IntermediateValueDesc> m_ImmValueCounter = new();
-        protected List<INamedStageExpression> m_StagedValues = new();
-        protected Dictionary<string, SubComponentDesc> m_SubComponentObjects = new();
+        protected Dictionary<string, IOverlappedObjectDesc> m_SubComponentObjects = new();
         protected List<RegisterDesc> m_Registers = new();
         protected Dictionary<IAssignableValue, AssignmentInfo> m_GenericAssignments = new();
 
@@ -417,9 +425,7 @@ namespace IntelliVerilog.Core.Analysis {
         public override IEnumerable<ClockDomain> UsedClockDomains => m_ClockDomains;
         public override IEnumerable<RegisterDesc> Registers => m_Registers;
         public override IEnumerable<IUntypedConstructionPort> IoPortShape => m_IoPortShape;
-        public override IReadOnlyDictionary<string, SubComponentDesc> SubComponents => m_SubComponentObjects;
-        public override IReadOnlyCollection<INamedStageExpression> IntermediateValues => m_StagedValues;
-        public override IReadOnlyDictionary<string, IntermediateValueDesc> IntermediateValueCount => m_ImmValueCounter;
+        public override IReadOnlyDictionary<string, IOverlappedObjectDesc> OverlappedObjects => m_SubComponentObjects;
         public override IReadOnlyDictionary<IAssignableValue, AssignmentInfo> GenericAssignments => m_GenericAssignments;
         public override IDictionary<IWireLike, WireTrivalAux> WireLikeObjects => m_WireLikeObjects;
 
@@ -661,14 +667,14 @@ namespace IntelliVerilog.Core.Analysis {
         }
  
         public AbstractValue AssignLocalSignalVariable(Type dataType, string name, AbstractValue rightValue) {
-            if (!m_ImmValueCounter.ContainsKey(name)) m_ImmValueCounter.Add(name, new(rightValue.Type));
+            if (!m_SubComponentObjects.ContainsKey(name)) m_SubComponentObjects.Add(name, new SubValueStageDesc(name,rightValue.Type));
+            var desc = m_SubComponentObjects[name];
 
             var namedType = typeof(NamedStageExpression<>).MakeGenericType(dataType);
+            var stagedValue = (INamedStageExpression)namedType.GetConstructor(new Type[] {typeof(AbstractValue),typeof(SubValueStageDesc) })
+                .Invoke(new object[] { rightValue, desc });
 
-            var stagedValue = (INamedStageExpression)namedType.GetConstructor(new Type[] {typeof(AbstractValue),typeof(string),typeof(int) })
-                .Invoke(new object[] { rightValue, name, m_ImmValueCounter[name].Count++ });
-
-            m_StagedValues.Add(stagedValue);
+            desc.Add(stagedValue);
 
             return (AbstractValue)stagedValue;
         }
@@ -706,7 +712,7 @@ namespace IntelliVerilog.Core.Analysis {
         }
         public void AssignLocalSubComponent(string name, ComponentBase subComponent) {
             if (!m_SubComponentObjects.ContainsKey(name)) {
-                m_SubComponentObjects.Add(name, new(name));
+                m_SubComponentObjects.Add(name, new SubComponentDesc(name));
             }
             var newGroup = m_SubComponentObjects[name];
             newGroup.Add(subComponent);
@@ -730,9 +736,9 @@ namespace IntelliVerilog.Core.Analysis {
         }
         protected SubComponentDesc GetSubComponentDesc(ComponentBase subComponent) {
             if (!m_SubComponentObjects.ContainsKey(subComponent.CatagoryName)) {
-                m_SubComponentObjects.Add(subComponent.CatagoryName, new(subComponent.CatagoryName));
+                m_SubComponentObjects.Add(subComponent.CatagoryName, new SubComponentDesc(subComponent.CatagoryName));
             }
-            return m_SubComponentObjects[subComponent.CatagoryName];
+            return (SubComponentDesc)m_SubComponentObjects[subComponent.CatagoryName];
         }
 
 

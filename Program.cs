@@ -288,7 +288,7 @@ public unsafe static class App {
         };
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new DFF(3, clkDom2);
+            var adder = new Adder(3);
 
             var codeGen = new VerilogGenerator();
             var generatedModel = new Dictionary<ComponentModel, Components.Module>();
@@ -305,8 +305,9 @@ public unsafe static class App {
 
                 Console.WriteLine(code);
 
-                foreach (var i in currentModule.InternalModel.SubComponents) {
-                    foreach (var j in i.Value) {
+                foreach (var i in currentModule.InternalModel.OverlappedObjects) {
+                    if (!(i.Value is SubComponentDesc subComponentInstGroup)) continue;
+                    foreach (var j in subComponentInstGroup) {
                         if (j is Components.Module subModule) {
                             if (!generatedModel.ContainsKey(j.InternalModel)) {
                                 generatedModel.Add(j.InternalModel, subModule);
