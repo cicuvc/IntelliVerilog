@@ -70,7 +70,7 @@ namespace IntelliVerilog.Core.Expressions {
         protected RegRightValueWrapper<TData>? m_RValueCache = null;
         public virtual RightValue<TData> RValue {
             get {
-                if (m_RValueCache == null) m_RValueCache = new(this);
+                if (m_RValueCache is null) m_RValueCache = new(this);
                 return m_RValueCache;
             }
         }

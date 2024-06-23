@@ -22,7 +22,7 @@ namespace IntelliVerilog.Core.Expressions {
         where TData : DataType, IDataType<TData> {
 
         protected IoRightValueWrapper<TData>? m_RightValueCache = null!;
-        public IoRightValueWrapper<TData> RValue {
+        public virtual IoRightValueWrapper<TData> RValue {
             get {
                 if (m_RightValueCache is null) {
                     if(this is IUntypedConstructionPort constructed) {

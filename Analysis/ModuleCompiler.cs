@@ -180,6 +180,26 @@ namespace IntelliVerilog.Core.Analysis {
                 }
             }
 
+            var notifyReferenceValueTypeWrite = typeof(IoAccessHooks).GetMethod(nameof(IoAccessHooks.NotifyReferenceValueTypeWrite));
+            codeBaseLength = editor.Count;
+            for (var i = 0; i < codeBaseLength; i++) {
+                var (opcode, operand) = editor[i];
+
+                if (opcode == ILOpCode.Stobj) {
+                    var referenceType = mainModule.ResolveType((int)operand);
+
+                    if (referenceType != null && ioPortTypes.Contains(referenceType)) {
+                        var hookFunction = notifyReferenceValueTypeWrite.MakeGenericMethod(referenceType);
+
+                        editor[i] = (ILOpCode.Br, editor.Count);
+
+                        editor.Emit(ILOpCode.Ldarg_0);
+                        editor.Emit(ILOpCode.Call, proxy.AllocateToken(hookFunction));
+
+                        editor.Emit(ILOpCode.Br, i + 1);
+                    }
+                }
+            }
 
             var firstOpCode = editor[0];
             editor[0] = (ILOpCode.Br, editor.Count);

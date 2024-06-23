@@ -6,13 +6,13 @@ using System.Linq;
 
 namespace IntelliVerilog.Core.Expressions {
     public class ExternalOutput<TData> 
-        : TypeSpecifiedOutput<TData>, IUntypedConstructionPort 
+        : TypeSpecifiedOutput<TData>, IUntypedConstructionPort,IAssignableValue 
         where TData : DataType, IDataType<TData> {
 
         protected IoRightValueWrapper<TData>? m_CachedRightValue;
         public override AbstractValue UntypedRValue {
             get {
-                if (m_CachedRightValue == null) m_CachedRightValue = new(this);
+                if (m_CachedRightValue is null) m_CachedRightValue = new(this);
                 return m_CachedRightValue;
             }
         }
@@ -34,6 +34,11 @@ namespace IntelliVerilog.Core.Expressions {
             var portName = $"{string.Join('_', path.Path.Select(e => e.Name))}_{path.Name}";
             return portName;
         }
+
+        public AssignmentInfo CreateAssignmentInfo() {
+            throw new NotImplementedException();
+        }
+
         public ExternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member, IUntypedConstructionPort internalPort) : base(dataType) {
             PortMember = member; ;
             Parent = parent;

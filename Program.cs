@@ -440,12 +440,9 @@ public unsafe static class App {
             Reset = dummyReset
         };
 
-        var clkDom2 = new ClockDomain("ext", dummyClock) { 
-            Reset = dummyReset
-        };
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new MuxDemo(3);
+            var adder = new DFFParent(3);
 
             var codeGen = new VerilogGenerator();
             var generatedModel = new Dictionary<ComponentModel, Components.Module>();

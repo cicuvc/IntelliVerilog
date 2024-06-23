@@ -108,6 +108,27 @@ namespace IntelliVerilog.Core.Analysis {
                 buildingModel.AssignSubModuleConnections(assignable, value, .., returnAddress);
             }
         }
+        public static void NotifyReferenceValueTypeWrite<TTuple>(ref TTuple target, TTuple value, Components.Module module) where TTuple : struct, ITuple {
+            var buildingModel = module.InternalModel as ComponentBuildingModel;
+
+            var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
+            var returnAddress = returnTracker.TrackReturnAddress(module, paramIndex: 4);
+
+            var internalModel = module.InternalModel;
+            foreach(var i in internalModel.GetSubComponents()) {
+                if(i.IsModuleIo(ref target)) {
+                    var ioAux = IoComponentProbableHelpers.QueryProbeAuxiliary(i.GetType());
+                    var box = (object)value;
+                    foreach (var j in ioAux.GetIoMembers(i.GetType())) {
+                        var fieldInfo = (FieldInfo)j.Member;
+                        var leftValue = (IAssignableValue)j.GetValue(i);
+                        var rightValue = fieldInfo.GetValue(box);
+                        buildingModel.AssignSubModuleConnections(leftValue, rightValue, .., returnAddress);
+                    }
+                    return;
+                }
+            }
+        }
         public unsafe static void NotifyIoTupleSet<TTuple>(ref TTuple tuple, IUntypedPort newValue, Components.Module module,  nint fieldHandle) where TTuple: struct, ITuple {
             var field = RuntimeFieldHandle.FromIntPtr(fieldHandle);
             var fieldInfo = FieldInfo.GetFieldFromHandle(field, typeof(TTuple).TypeHandle);

@@ -188,6 +188,10 @@ namespace IntelliVerilog.Core.Analysis {
             ModelName = $"{componentType.Name}_{Utility.GetArraySignature(instParameters)}";
         }
         public abstract IEnumerable<(AbstractValue assignValue, SpecifiedRange range)> QueryAssignedSubComponentIoValues(IUntypedConstructionPort declComponent, ComponentBase subModule);
+    
+        public IEnumerable<ComponentBase> GetSubComponents() {
+            return OverlappedObjects.Where(e => e.Value is SubComponentDesc).SelectMany(e => (SubComponentDesc)e.Value);
+        }
     }
 
     public record IoPortInternalAssignment(IUntypedConstructionPort InternalPort, AbstractValue Value, SpecifiedRange SelectionRange) {
@@ -686,19 +690,19 @@ namespace IntelliVerilog.Core.Analysis {
             if (!m_ClockDomains.Contains(clkDomain)) {
                 m_ClockDomains.Add(clkDomain);
 
-                if(clkDomain.Clock != null) {
+                if(!(clkDomain.Clock is null)) {
                     var fakeClock = new ClockDomainInput(clkDomain,ClockDomainSignal.Clock);
                     m_IoPortShape.Add(fakeClock);
                 }
-                if (clkDomain.Reset != null) {
+                if (!(clkDomain.Reset is null)) {
                     var fakeClock = new ClockDomainInput(clkDomain, ClockDomainSignal.Reset);
                     m_IoPortShape.Add(fakeClock);
                 }
-                if (clkDomain.SyncReset != null) {
+                if (!(clkDomain.SyncReset is null)) {
                     var fakeClock = new ClockDomainInput(clkDomain, ClockDomainSignal.SyncReset);
                     m_IoPortShape.Add(fakeClock);
                 }
-                if (clkDomain.ClockEnable != null) {
+                if (!(clkDomain.ClockEnable is null)) {
                     var fakeClock = new ClockDomainInput(clkDomain, ClockDomainSignal.ClockEnable);
                     m_IoPortShape.Add(fakeClock);
                 }
@@ -835,7 +839,7 @@ namespace IntelliVerilog.Core.Analysis {
 
                             break;
                         }
-                        if(ioComponentLhs.Flags.HasFlag(GeneralizedPortFlags.InternalPort)) { // InternalInput
+                        if(ioComponentLhs.Flags.HasFlag(GeneralizedPortFlags.InternalPort)) { // InternalInput  // inverted case
                             var leftInternalInput = (IUntypedConstructionPort)ioComponentLhs;
                             throw new InvalidOperationException($"Assignment on internal io port {leftInternalInput.Location}");
                         }
@@ -845,29 +849,31 @@ namespace IntelliVerilog.Core.Analysis {
                     case IoPortDirection.Output: {
                         if (ioComponentLhs.Flags.HasFlag(GeneralizedPortFlags.ExternalPort)) { // ExternalOutput
                             // inverted case
-                            if (rightValue is IExpressionAssignedIoType expression) {
-                                if(expression.UntypedExpression is IInvertedOutput invertedOutput) {
-                                    var bits = (int)invertedOutput.InternalOut.UntypedRValue.Type.WidthBits;
-                                    var specRange = new SpecifiedRange(invertedOutput.SelectedRange, bits);
+                            var rightExpression = ResolveRightValue(rightValue);
 
-                                    if(specRange.BitWidth != ioComponentLhs.UntypedRValue.Type.WidthBits) {
-                                        throw new InvalidOperationException("Bit width mismatch");
-                                    }
-                                    var wireObject = (IWireLike)invertedOutput.InternalOut;
-                                    if (!m_WireLikeObjects.ContainsKey(wireObject)) {
-                                        m_WireLikeObjects.Add(wireObject, new ExternalPortTrivalAux((IUntypedConstructionPort)invertedOutput.InternalOut));
-                                    }
 
-                                    if (Behavior.IsInBranchContext) {
-                                        Behavior!.NotifyAssignment(returnAddress, (IAssignableValue)invertedOutput.InternalOut, ioComponentLhs.UntypedRValue, specRange);
-                                    } else { 
-                                        AssignOutputExpression(invertedOutput.InternalOut, ioComponentLhs.UntypedRValue, specRange );
-                                    }
+                            if (rightExpression is IInvertedOutput invertedOutput) {
+                                var bits = (int)invertedOutput.InternalOut.UntypedRValue.Type.WidthBits;
+                                var specRange = new SpecifiedRange(invertedOutput.SelectedRange, bits);
 
-                                   
-                                    break;
+                                if (specRange.BitWidth != ioComponentLhs.UntypedRValue.Type.WidthBits) {
+                                    throw new InvalidOperationException("Bit width mismatch");
                                 }
+                                var wireObject = (IWireLike)invertedOutput.InternalOut;
+                                if (!m_WireLikeObjects.ContainsKey(wireObject)) {
+                                    m_WireLikeObjects.Add(wireObject, new ExternalPortTrivalAux((IUntypedConstructionPort)invertedOutput.InternalOut));
+                                }
+
+                                if (Behavior.IsInBranchContext) {
+                                    Behavior!.NotifyAssignment(returnAddress, (IAssignableValue)invertedOutput.InternalOut, ioComponentLhs.UntypedRValue, specRange);
+                                } else {
+                                    AssignOutputExpression(invertedOutput.InternalOut, ioComponentLhs.UntypedRValue, specRange);
+                                }
+
+
+                                break;
                             }
+
 
                             throw new NotImplementedException();
                         }

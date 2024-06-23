@@ -1,11 +1,20 @@
 ﻿using IntelliVerilog.Core.Analysis;
 using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.DataTypes;
+using IntelliVerilog.Core.Expressions.Algebra;
 using System;
 using System.Linq;
 using System.Reflection;
 
 namespace IntelliVerilog.Core.Expressions {
+    public class IoInvertibleRightValueWrapper<TData> : IoRightValueWrapper<TData>,IInvertedOutput where TData : DataType, IDataType<TData> {
+        public IoInvertibleRightValueWrapper(InternalOutput<TData> ioPort) : base(ioPort) {
+        }
+
+        public IoComponent InternalOut => UntypedComponent;
+
+        public Range SelectedRange => (..);
+    }
     public class InternalOutput<TData> : TypeSpecifiedOutput<TData>, IUntypedConstructionPort, IAssignableValue where TData : DataType, IDataType<TData> {
         public InternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member) : base(dataType) {
             PortMember = member; ;
@@ -13,6 +22,15 @@ namespace IntelliVerilog.Core.Expressions {
             Component = root;
             Creator = creator;
             Name = GetDefaultName;
+            
+        }
+        public override IoRightValueWrapper<TData> RValue {
+            get {
+                if (m_RightValueCache is null) {
+                    m_RightValueCache = new IoInvertibleRightValueWrapper<TData>(this);
+                }
+                return m_RightValueCache;
+            }
         }
         public string GetDefaultName() {
             var path = Location;
@@ -70,6 +88,5 @@ namespace IntelliVerilog.Core.Expressions {
         public IoPortPath Location => new IoPortPath(this, PortMember);
 
         public IUntypedConstructionPort InternalPort => this;
-
     }
 }

@@ -26,19 +26,32 @@ namespace IntelliVerilog.Core.Examples {
         Input<Bool> en,
         Output<UInt> outValue
         )> {
-        public DFF(uint width, ClockDomain dom2) {
+        public DFF(uint width) {
             ref var io = ref UseDefaultIo(new() { 
                 inValue = width.Bits(),
                 outValue = width.Bits()
             });
 
             ref var register = ref Reg.New(width.Bits());
-            ref var r2 = ref Reg.New(width.Bits(), dom2, true);
-
-            r2 = register.RValue + io.inValue;
+           
             register = io.inValue.RValue;
 
-            io.outValue = r2.RValue;
+            io.outValue = register.RValue;
+        }
+    }
+    public class DFFParent : Module<(
+        Input<UInt> inValue,
+        Input<Bool> en,
+        Output<UInt> outValue
+        )> { 
+        public DFFParent(uint width) {
+            ref var io = ref UseDefaultIo(new() {
+                inValue = width.Bits(),
+                outValue = width.Bits()
+            });
+
+            var dff = new DFF(width);
+            dff.IO = io;
         }
     }
     public enum TestEnum {
