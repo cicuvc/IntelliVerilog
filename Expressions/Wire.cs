@@ -148,5 +148,25 @@ namespace IntelliVerilog.Core.Expressions {
         public static RightValue<Bool> operator !=(Wire<TData> lhs, Wire<TData> rhs) {
             return lhs.RValue != rhs.RValue;
         }
+
+        public static RightValue<Bool> operator >(Wire<TData> lhs, Wire<TData> rhs) {
+            return lhs.RValue > rhs.RValue;
+        }
+
+        public static RightValue<Bool> operator <(Wire<TData> lhs, Wire<TData> rhs) {
+            return lhs.RValue < rhs.RValue;
+        }
+
+        public static RightValue<Bool> operator >=(Wire<TData> lhs, Wire<TData> rhs) {
+            return lhs.RValue >= rhs.RValue;
+        }
+
+        public static RightValue<Bool> operator <=(Wire<TData> lhs, Wire<TData> rhs) {
+            return lhs.RValue <= rhs.RValue;
+        }
+
+        public static RightValue<TData> operator ~(Wire<TData> lhs) {
+            return ~lhs.RValue;
+        }
     }
 }

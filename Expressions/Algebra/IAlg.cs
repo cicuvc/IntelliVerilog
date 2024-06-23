@@ -20,6 +20,10 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
         RightValue<T> NotExpression(RightValue<T> lhs);
         RightValue<Bool> EqualExpression(RightValue<T> lhs, RightValue<T> rhs);
         RightValue<Bool> NonEqualExpression(RightValue<T> lhs, RightValue<T> rhs);
+        RightValue<Bool> GreaterExpression(RightValue<T> lhs, RightValue<T> rhs);
+        RightValue<Bool> LessExpression(RightValue<T> lhs, RightValue<T> rhs);
+        RightValue<Bool> GreaterEqualExpression(RightValue<T> lhs, RightValue<T> rhs);
+        RightValue<Bool> LessEqualExpression(RightValue<T> lhs, RightValue<T> rhs);
 
         void SetSelectionValue(RightValue<T> lhs, int index, RightValue<T> value);
         void SetSelectionValue(RightValue<T> lhs, Range range, RightValue<T> value);

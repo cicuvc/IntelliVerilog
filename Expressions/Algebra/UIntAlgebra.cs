@@ -74,6 +74,22 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
         public UIntNonEqualExpression(RightValue<UInt> lhs, RightValue<UInt> rhs) : base(lhs, rhs) {
         }
     }
+    public class UIntGreaterEqualExpression : BinaryRelationExpression<UInt> {
+        public UIntGreaterEqualExpression(RightValue<UInt> lhs, RightValue<UInt> rhs) : base(lhs, rhs) {
+        }
+    }
+    public class UIntLessEqualExpression : BinaryRelationExpression<UInt> {
+        public UIntLessEqualExpression(RightValue<UInt> lhs, RightValue<UInt> rhs) : base(lhs, rhs) {
+        }
+    }
+    public class UIntGreaterExpression : BinaryRelationExpression<UInt> {
+        public UIntGreaterExpression(RightValue<UInt> lhs, RightValue<UInt> rhs) : base(lhs, rhs) {
+        }
+    }
+    public class UIntLessExpression : BinaryRelationExpression<UInt> {
+        public UIntLessExpression(RightValue<UInt> lhs, RightValue<UInt> rhs) : base(lhs, rhs) {
+        }
+    }
     public class UIntAlgebra : IAlg<UInt> {
         public static UIntAlgebra Instance { get; } = new();
         public RightValue<UInt> AddExpression(RightValue<UInt> lhs, RightValue<UInt> rhs)
@@ -91,6 +107,17 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
 
         public RightValue<Bool> EqualExpression(RightValue<UInt> lhs, RightValue<UInt> rhs)
             => new UIntEqualExpression(lhs, rhs);
+
+        public RightValue<Bool> GreaterEqualExpression(RightValue<UInt> lhs, RightValue<UInt> rhs)
+             => new UIntGreaterEqualExpression(lhs, rhs);
+        public RightValue<Bool> GreaterExpression(RightValue<UInt> lhs, RightValue<UInt> rhs)
+             => new UIntGreaterExpression(lhs, rhs);
+
+        public RightValue<Bool> LessEqualExpression(RightValue<UInt> lhs, RightValue<UInt> rhs)
+            => new UIntLessEqualExpression(lhs, rhs);
+
+        public RightValue<Bool> LessExpression(RightValue<UInt> lhs, RightValue<UInt> rhs)
+             => new UIntLessExpression(lhs, rhs);
 
         public RightValue<UInt> MulExpression(RightValue<UInt> lhs, RightValue<UInt> rhs)
             => new UIntMulExpression(lhs, rhs);

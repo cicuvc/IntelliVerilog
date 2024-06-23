@@ -312,6 +312,26 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
             }
         }
     }
+    public abstract class VerilogUnaryOperator : VerilogAstNode {
+        public VerilogAstNode LeftValue { get; }
+        public abstract string Operator { get; }
+        public override bool NoLineEnd => false;
+        public VerilogUnaryOperator(VerilogAstNode lhs) {
+            LeftValue = lhs;
+        }
+        public override void GenerateCode(VerilogGenerationContext context) {
+            context.Append("(");
+            context.AppendFormat(Operator);
+            LeftValue.GenerateCode(context);
+            context.Append(")");
+        }
+    }
+    public class VerilogNotOperator : VerilogUnaryOperator {
+        public VerilogNotOperator(VerilogAstNode lhs) : base(lhs) {
+        }
+
+        public override string Operator => "~";
+    }
     public abstract class VerilogBinaryOperator: VerilogAstNode {
         public VerilogAstNode LeftValue { get; }
         public VerilogAstNode RightValue { get; }
@@ -334,6 +354,30 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         }
 
         public override string Operator => " ^ ";
+    }
+    public class VerilogGreaterExpression : VerilogBinaryOperator {
+        public VerilogGreaterExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " > ";
+    }
+    public class VerilogGreaterEqualExpression : VerilogBinaryOperator {
+        public VerilogGreaterEqualExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " >= ";
+    }
+    public class VerilogLessEqualExpression : VerilogBinaryOperator {
+        public VerilogLessEqualExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " <= ";
+    }
+    public class VerilogLessExpression : VerilogBinaryOperator {
+        public VerilogLessExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
+        }
+
+        public override string Operator => " <";
     }
     public class VerilogAndExpression : VerilogBinaryOperator {
         public VerilogAndExpression(VerilogAstNode lhs, VerilogAstNode rhs) : base(lhs, rhs) {
@@ -578,8 +622,22 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 if (value is UIntDivExpression) {
                     return new VerilogDivExpression(lhs, rhs);
                 }
+                if (value is UIntXorExpression) {
+                    return new VerilogXorExpression(lhs, rhs);
+                }
+                if (value is UIntAndExpression) {
+                    return new VerilogAndExpression(lhs, rhs);
+                }
+                if (value is UIntOrExpression) {
+                    return new VerilogOrExpression(lhs, rhs);
+                }
+
                 if (value is UIntEqualExpression) return new VerilogEqualExpression(lhs, rhs);
                 if (value is UIntNonEqualExpression) return new VerilogNonEqualExpression(lhs, rhs);
+                if (value is UIntGreaterExpression) return new VerilogGreaterExpression(lhs, rhs);
+                if (value is UIntGreaterEqualExpression) return new VerilogGreaterEqualExpression(lhs, rhs);
+                if (value is UIntLessExpression) return new VerilogLessExpression(lhs, rhs);
+                if (value is UIntLessEqualExpression) return new VerilogLessEqualExpression(lhs, rhs);
             }
 
             if(value is IUntypedUnaryExpression unaryExpression) {
@@ -589,6 +647,8 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 if (valueType.IsConstructedGenericType && valueType.GetGenericTypeDefinition() == typeof(CastExpression<>)) {
                     return lhs;
                 }
+                if (value is UIntNotExpression) return new VerilogNotOperator(lhs);
+                throw new NotImplementedException();
 
             }
             if(value is IUntypedIoRightValueWrapper rightValue) {

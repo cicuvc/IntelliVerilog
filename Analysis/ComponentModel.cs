@@ -824,6 +824,9 @@ namespace IntelliVerilog.Core.Analysis {
                             var bits = (int)wireSet.UntypedLeftValue.UntypedType.WidthBits;
                             var specRange = new SpecifiedRange(range, bits);
 
+                            if (!rightExpression.Type.IsWidthSpecified) {
+                                rightExpression.Type = wireSet.UntypedLeftValue.UntypedType;
+                            }
                             if (specRange.BitWidth != rightExpression.Type.WidthBits) {
                                 throw new InvalidOperationException("Bit width mismatch");
                             }
@@ -853,7 +856,14 @@ namespace IntelliVerilog.Core.Analysis {
 
 
                             if (rightExpression is IInvertedOutput invertedOutput) {
-                                var bits = (int)invertedOutput.InternalOut.UntypedRValue.Type.WidthBits;
+                                var realLhs = (IUntypedConstructionPort)invertedOutput.InternalOut;
+
+
+                                if (!realLhs.UntypedType.IsWidthSpecified) {
+                                    realLhs.UntypedType = ioComponentLhs.UntypedRValue.Type;
+                                }
+
+                                var bits = (int)realLhs.UntypedType.WidthBits;
                                 var specRange = new SpecifiedRange(invertedOutput.SelectedRange, bits);
 
                                 if (specRange.BitWidth != ioComponentLhs.UntypedRValue.Type.WidthBits) {
@@ -884,12 +894,19 @@ namespace IntelliVerilog.Core.Analysis {
                             Debug.Assert(rightExpression != null);
 
                             var lhsType = ((IDataTypeSpecifiedPort)ioComponentLhs).UntypedType;
+ 
+                            if (!rightExpression.Type.IsWidthSpecified && !lhsType.IsWidthSpecified) {
+                                throw new Exception("Unable to infer bit width");
+                            }
+                            if (!lhsType.IsWidthSpecified) {
+                                lhsType = ((IDataTypeSpecifiedPort)ioComponentLhs).UntypedType = rightExpression.Type;
+                            }
+                            if (!rightExpression.Type.IsWidthSpecified) {
+                                rightExpression.Type = lhsType;
+                            }
+
                             var bits = (int)lhsType.WidthBits;
                             var specRange = new SpecifiedRange(range, bits);
-
-                            if (!rightExpression.Type.IsWidthSpecified) {
-                                rightExpression.Type = lhsType.CreateWithWidth((uint)bits);
-                            }
                             if (specRange.BitWidth != rightExpression.Type.WidthBits) {
                                 throw new InvalidOperationException("Bit width mismatch");
                             }

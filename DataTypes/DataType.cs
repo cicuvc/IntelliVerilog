@@ -53,7 +53,7 @@ namespace IntelliVerilog.Core.DataTypes {
         }
 
         public static UInt CreateDefault() {
-            return new(1);
+            return new(uint.MaxValue);
         }
 
         public override DataType CreateWithWidth(uint bits) {

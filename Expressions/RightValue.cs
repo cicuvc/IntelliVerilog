@@ -97,6 +97,12 @@ public interface IRightValueOps<TValue, TData> where TValue: IRightValueOps<TVal
     static abstract RightValue<TData> operator |(TValue lhs, TValue rhs);
     static abstract RightValue<Bool> operator ==(TValue lhs, TValue rhs);
     static abstract RightValue<Bool> operator !=(TValue lhs, TValue rhs);
+    static abstract RightValue<Bool> operator >(TValue lhs, TValue rhs);
+    static abstract RightValue<Bool> operator <(TValue lhs, TValue rhs);
+    static abstract RightValue<Bool> operator >=(TValue lhs, TValue rhs);
+    static abstract RightValue<Bool> operator <=(TValue lhs, TValue rhs);
+    static abstract RightValue<TData> operator ~(TValue lhs);
+
 }
 
 public interface IRightValueSelectionOps<TData> where TData: DataType, IDataType<TData> {
@@ -171,6 +177,26 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
 
     public static RightValue<Bool> operator !=(RightValue<TData> lhs, RightValue<TData> rhs) {
         return lhs.TypedAlgebra.NonEqualExpression(lhs, rhs);
+    }
+
+    public static RightValue<Bool> operator >(RightValue<TData> lhs, RightValue<TData> rhs) {
+        return lhs.TypedAlgebra.GreaterExpression(lhs, rhs);
+    }
+
+    public static RightValue<Bool> operator <(RightValue<TData> lhs, RightValue<TData> rhs) {
+        return lhs.TypedAlgebra.LessExpression(lhs, rhs);
+    }
+
+    public static RightValue<Bool> operator >=(RightValue<TData> lhs, RightValue<TData> rhs) {
+        return lhs.TypedAlgebra.GreaterEqualExpression(lhs, rhs);
+    }
+
+    public static RightValue<Bool> operator <=(RightValue<TData> lhs, RightValue<TData> rhs) {
+        return lhs.TypedAlgebra.LessEqualExpression(lhs, rhs);
+    }
+
+    public static RightValue<TData> operator ~(RightValue<TData> lhs) {
+        return lhs.TypedAlgebra.NotExpression(lhs);
     }
 
     public RightValue<Bool> this[uint index] {

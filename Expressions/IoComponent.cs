@@ -76,7 +76,27 @@ namespace IntelliVerilog.Core.Expressions {
         }
 
         public static RightValue<Bool> operator !=(IoComponent<TData> lhs, IoComponent<TData> rhs) {
-            throw new NotImplementedException();
+            return lhs.RValue != rhs.RValue;
+        }
+
+        public static RightValue<Bool> operator >(IoComponent<TData> lhs, IoComponent<TData> rhs) {
+            return lhs.RValue > rhs.RValue;
+        }
+
+        public static RightValue<Bool> operator <(IoComponent<TData> lhs, IoComponent<TData> rhs) {
+            return lhs.RValue < rhs.RValue;
+        }
+
+        public static RightValue<Bool> operator >=(IoComponent<TData> lhs, IoComponent<TData> rhs) {
+            return lhs.RValue >= rhs.RValue;
+        }
+
+        public static RightValue<Bool> operator <=(IoComponent<TData> lhs, IoComponent<TData> rhs) {
+            return lhs.RValue <= rhs.RValue;
+        }
+
+        public static RightValue<TData> operator ~(IoComponent<TData> lhs) {
+            return ~lhs.RValue;
         }
 
         public RightValue<Bool> this[uint index] {

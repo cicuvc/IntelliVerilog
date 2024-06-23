@@ -35,9 +35,9 @@ namespace IntelliVerilog.Core.Components {
                 var ioAux = IoComponentProbableHelpers.QueryProbeAuxiliary(type)!;
 
                 foreach (var i in ioAux.GetIoMembers(type)) {
-                    if (i.Member.DeclaringType != typeof(TIoPorts)) continue;
+                    if (!(i is IoMemberTupleFieldInfo tupleField)) continue;
 
-                    var refValue = (IUntypedPort?)((FieldInfo)i.Member).GetValue(boxedValue);
+                    var refValue = tupleField.GetRawValue(boxedValue);
                     var finalValue = MakeInternalSinglePort(i, this, refValue);
 
                     building.RegisterIoPorts(finalValue);

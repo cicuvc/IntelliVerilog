@@ -16,6 +16,15 @@ using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.Analysis {
     public class ModuleCompiler : IMethodCompiler {
+
+        private void TrackTupleTypes(Type type, HashSet<Type> typeList) {
+            foreach(var i in type.GetFields()) {
+                if (i.FieldType.IsAssignableTo(typeof(ITuple))){
+                    typeList.Add(i.FieldType);
+                    TrackTupleTypes(i.FieldType, typeList);
+                }
+            }
+        }
         private bool IsStoreLocal((ILOpCode opcode,long operand) code, out int index) {
             index = code.opcode switch {
                 ILOpCode.Stloc_0 => 0,
@@ -131,7 +140,9 @@ namespace IntelliVerilog.Core.Analysis {
                         }
                         if(useIoDefaultMethod != null) {
                             if (targetMethod.MethodHandle == useIoDefaultMethod.MethodHandle) {
-                                ioPortTypes.Add(targetMethod.ReturnType.GetElementType()!);
+                                var elementType = targetMethod.ReturnType.GetElementType()!;
+                                ioPortTypes.Add(elementType);
+                                TrackTupleTypes(elementType, ioPortTypes);
                                 IvLogger.Default.Verbose("ModuleCompiler", $"Find default IO type {ReflectionHelpers.PrettyTypeName(targetMethod.ReturnType)}");
                             }
                         }
@@ -153,6 +164,7 @@ namespace IntelliVerilog.Core.Analysis {
                     if(moduleTupledType != typeof(Components.Module)) {
                         var defaultPortType = moduleTupledType.GetGenericArguments()[0];
                         ioPortTypes.Add(defaultPortType);
+                        
 
                         IvLogger.Default.Verbose("ModuleCompiler", $"Find default IO type {ReflectionHelpers.PrettyTypeName(defaultPortType)}");
                     }
@@ -160,7 +172,6 @@ namespace IntelliVerilog.Core.Analysis {
                 }
             }
 
-            var getReturnAddress = ReflectionHelpers.GetReturnAddress;
             var tupleSetHook = typeof(IoAccessHooks).GetMethod("NotifyIoTupleSet", BindingFlags.Static | BindingFlags.Public);
             for (var i = 0; i < editor.Count; i++) {
                 var (opcode, operand) = editor[i];
@@ -173,6 +184,7 @@ namespace IntelliVerilog.Core.Analysis {
 
                         editor.Emit(ILOpCode.Ldarg_0);
                         editor.Emit(ILOpCode.Ldc_i8, fieldRef.FieldHandle.Value);
+                        editor.Emit(ILOpCode.Ldc_i8, fieldRef.DeclaringType.TypeHandle.Value);
 
                         editor.Emit(ILOpCode.Call, proxy.AllocateToken(tupleSetHookSpecified));
                         editor.Emit(ILOpCode.Br, i + 1);

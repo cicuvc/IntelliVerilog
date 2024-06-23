@@ -4,6 +4,7 @@ using IntelliVerilog.Core.CodeGen.Verilog;
 using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.DataTypes;
 using IntelliVerilog.Core.Examples;
+using IntelliVerilog.Core.Examples.TestSuites;
 using IntelliVerilog.Core.Expressions;
 using IntelliVerilog.Core.Logging;
 using IntelliVerilog.Core.Runtime.Core;
@@ -21,6 +22,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Numerics;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
@@ -407,6 +409,16 @@ public unsafe class ReturnAddressTracker {
         throw new NotImplementedException();
     }
 }
+public struct UB {
+    public int x;
+    public int y;
+}
+public struct UC {
+    public UB v;
+}
+public struct UA {
+    public UC v;
+}
 public unsafe static class App {
     public static void Main() {
         Debugger.Break();
@@ -442,7 +454,7 @@ public unsafe static class App {
 
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new DFFParent(3);
+            var adder = new OperatorTest(3);
 
             var codeGen = new VerilogGenerator();
             var generatedModel = new Dictionary<ComponentModel, Components.Module>();

@@ -30,7 +30,7 @@ namespace IntelliVerilog.Core.Expressions {
         IUntypedPort CreateExternalPlaceholder(IoBundle parent, IoMemberInfo member, IUntypedConstructionPort internalPort);
     }
     public interface IDataTypeSpecifiedPort: IUntypedPort {
-        DataType UntypedType { get; }
+        DataType UntypedType { get; set; }
     }
     public interface IUntypedLocatedPort: IUntypedPort {
         // Reflection member of the port

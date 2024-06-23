@@ -128,10 +128,12 @@ namespace IntelliVerilog.Core.Analysis {
                     return;
                 }
             }
+
+            throw new NotImplementedException();
         }
-        public unsafe static void NotifyIoTupleSet<TTuple>(ref TTuple tuple, IUntypedPort newValue, Components.Module module,  nint fieldHandle) where TTuple: struct, ITuple {
+        public unsafe static void NotifyIoTupleSet<TTuple>(ref TTuple tuple, IUntypedPort newValue, Components.Module module,  nint fieldHandle, nint typeHandle) where TTuple: struct, ITuple {
             var field = RuntimeFieldHandle.FromIntPtr(fieldHandle);
-            var fieldInfo = FieldInfo.GetFieldFromHandle(field, typeof(TTuple).TypeHandle);
+            var fieldInfo = FieldInfo.GetFieldFromHandle(field, RuntimeTypeHandle.FromIntPtr(typeHandle));
 
             var boxed = (object)tuple;
 

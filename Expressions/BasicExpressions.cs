@@ -79,8 +79,10 @@ namespace IntelliVerilog.Core.Expressions {
             callback(UntypedRight);
         }
     }
-    public abstract class UnaryExpression<TData> : RightValue<TData> where TData : DataType, IDataType<TData> {
+    public abstract class UnaryExpression<TData> : RightValue<TData>, IUntypedUnaryExpression where TData : DataType, IDataType<TData> {
         public RightValue<TData> Left { get; }
+
+        public AbstractValue UntypedValue => Left;
         protected UnaryExpression(RightValue<TData> lhs) : base(lhs.TypedType) {
             Left = lhs;
         }

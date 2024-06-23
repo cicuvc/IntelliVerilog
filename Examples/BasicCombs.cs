@@ -47,7 +47,6 @@ namespace IntelliVerilog.Core.Examples {
         public DFFParent(uint width) {
             ref var io = ref UseDefaultIo(new() {
                 inValue = width.Bits(),
-                outValue = width.Bits()
             });
 
             var dff = new DFF(width);

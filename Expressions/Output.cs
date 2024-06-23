@@ -34,7 +34,7 @@ namespace IntelliVerilog.Core.Expressions {
 
         public IoPortPath Location => new(this, PortMember);
 
-        public DataType UntypedType => throw new NotSupportedException();
+        public DataType UntypedType { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
         public UnspecifiedLocatedOutput(IoBundle parent, ComponentBase root, IoMemberInfo member) {
             PortMember = member; ;
@@ -55,9 +55,19 @@ namespace IntelliVerilog.Core.Expressions {
         }
     }
     public abstract class TypeSpecifiedOutput<TData> : Output<TData> where TData : DataType, IDataType<TData> {
-        public DataType UntypedType { get; }
+        protected DataType m_UntypedType;
+        public DataType UntypedType {
+            get => m_UntypedType;
+            set {
+                if (m_UntypedType.IsWidthSpecified) {
+                    throw new InvalidOperationException("Override specified type!!");
+                }
+                m_UntypedType = value;
+                m_RightValueCache = null;
+            }
+        }
         public TypeSpecifiedOutput(TData type){
-            UntypedType = type;
+            m_UntypedType = type;
         }
     }
 }

@@ -18,6 +18,13 @@ namespace IntelliVerilog.Core.Expressions {
     public class IoRightValueWrapper<TData> : RightValue<TData>, IUntypedIoRightValueWrapper where TData : DataType, IDataType<TData> {
         public IUntypedConstructionPort IoComponent { get; }
         public IoComponent UntypedComponent => (IoComponent)IoComponent;
+        public override DataType Type { 
+            get => base.Type;
+            set {
+                base.Type = value;
+                //IoComponent.ty
+            }
+        }
         public IoRightValueWrapper(IUntypedConstructionPort ioPort, IAlg? algebra = null) : base((TData)ioPort.UntypedType, algebra) {
             IoComponent = ioPort;
         }

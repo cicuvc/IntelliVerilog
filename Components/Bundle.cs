@@ -8,29 +8,30 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.Components {
     public abstract class IoMemberInfo { 
-        public MemberInfo Member { get; }
+        public abstract MemberInfo Member { get; }
         public string Name { get; }
         public abstract Type MemberType { get; }
         public abstract void SetValue(object instance,IUntypedPort? value);
         public abstract IUntypedPort? GetValue(object instance);
-        public IoMemberInfo(MemberInfo member, string name) {
-            Member = member;
+        public IoMemberInfo(string name) {
             Name = name;
         }
     }
 
     public class IoMemberPropertyInfo : IoMemberInfo {
-        public IoMemberPropertyInfo(PropertyInfo member, string name) : base(member, name) {
+        public IoMemberPropertyInfo(PropertyInfo member, string name) : base(name) {
+            Member = member;
         }
 
         public override Type MemberType => ((PropertyInfo)Member).PropertyType;
-
+        public override MemberInfo Member { get; }
         public override IUntypedPort? GetValue(object instance) {
             return (IUntypedPort?)((PropertyInfo)Member).GetValue(instance);
         }
@@ -43,17 +44,54 @@ namespace IntelliVerilog.Core.Components {
     }
     public class IoMemberTupleFieldInfo : IoMemberInfo {
         public override Type MemberType => ((FieldInfo)Member).FieldType;
-        public IoMemberTupleFieldInfo(FieldInfo member, string name) : base(member, name) {
-        }
+        protected FieldInfo[] m_MemberChain;
+        protected DynamicMethod m_WriteValue;
+        protected DynamicMethod m_ReadValue;
+        public override MemberInfo Member => m_MemberChain.Last();
+        public IoMemberTupleFieldInfo(FieldInfo[] member, string name) : base(name) {
+            m_MemberChain = member;
+            var valueType = member.Last().FieldType;
+            var unboxType = member[0].DeclaringType;
 
+            m_WriteValue = new DynamicMethod($"{Utility.GetRandomStringHex(16)}_set", null, new Type[] {
+                typeof(object), valueType
+            });
+
+            var writeIG = m_WriteValue.GetILGenerator();
+            writeIG.Emit(OpCodes.Ldarg_0);
+            writeIG.Emit(OpCodes.Unbox, unboxType);
+            for(var i=0;i < member.Length - 1; i++) {
+                writeIG.Emit(OpCodes.Ldflda, member[i]);
+            }
+            writeIG.Emit(OpCodes.Ldarg_1);
+            writeIG.Emit(OpCodes.Stfld, member.Last());
+            writeIG.Emit(OpCodes.Ret);
+
+            m_ReadValue = new DynamicMethod($"{Utility.GetRandomStringHex(16)}_get", valueType, new Type[] {
+                typeof(object)
+            });
+
+            var readIG = m_ReadValue.GetILGenerator();
+            readIG.Emit(OpCodes.Ldarg_0);
+            readIG.Emit(OpCodes.Unbox, unboxType);
+            for (var i = 0; i < member.Length - 1; i++) {
+                readIG.Emit(OpCodes.Ldflda, member[i]);
+            }
+            readIG.Emit(OpCodes.Ldfld, member.Last());
+            readIG.Emit(OpCodes.Ret);
+        }
+        public IUntypedPort? GetRawValue(object instance) {
+            return (IUntypedPort?)m_ReadValue.Invoke(null, new object[] { instance });
+
+        }
         public override IUntypedPort? GetValue(object instance) {
-            var ioTuple = (ITupledModule)instance;
-            return (IUntypedPort?)((FieldInfo)Member).GetValue(ioTuple.BoxedIoPorts);
+            var module = (ITupledModule)instance;
+            return (IUntypedPort?)m_ReadValue.Invoke(null, new object[] { module.BoxedIoPorts });
         }
 
         public override void SetValue(object instance, IUntypedPort? value) {
-            var ioTuple = (ITupledModule)instance;
-            ((FieldInfo)Member).SetValue(ioTuple.BoxedIoPorts, value);
+            var module = (ITupledModule)instance;
+            m_WriteValue.Invoke(null, new object[] { module.BoxedIoPorts, value});
         }
     }
     public class BundleIoProbeAux : IIoComponentProbeAuxiliary {
@@ -132,18 +170,25 @@ namespace IntelliVerilog.Core.Components {
                     var tupleNames = type.GetCustomAttribute<TupleElementNamesAttribute>();
 
                     if(tupleNames != null) {
-                        baseSet = tupleNames.TransformNames.Where((e, index) => {
-                            var field = tupleType.GetField($"Item{index + 1}");
-                            if (field.GetCustomAttribute<IoIgnoreAttribute>() != null)
-                                return false;
-                            if (field.FieldType.IsAssignableTo(typeof(IUntypedPort))) {
-                                return true;
+                        var totalElements = tupleNames.TransformNames.Count(e => e != null);
+                        var tupleMembers = new List<IoMemberInfo>();
+
+                        var residueFieldInfo = new List<FieldInfo>();
+                        var currentType = tupleType;
+                        for(var i=0;i < totalElements; i++) {
+                            if(i % 7 == 0 && i>0) {
+                                var rest = currentType.GetField("Rest");
+                                residueFieldInfo.Add(rest);
+                                currentType = rest.FieldType;
                             }
-                            return false;
-                        }).Select((e, index) => {
-                            var field = tupleType.GetField($"Item{index + 1}");
-                            return new IoMemberTupleFieldInfo(field, e);
-                        }).Concat(baseSet);
+
+                            var field = currentType.GetField($"Item{(i % 7) + 1}");
+                            if (field.GetCustomAttribute<IoIgnoreAttribute>() != null) continue;
+                            var ioMember = new IoMemberTupleFieldInfo(residueFieldInfo.Append(field).ToArray(), tupleNames.TransformNames[i]);
+                            tupleMembers.Add(ioMember);
+                        }
+
+                        baseSet = baseSet.Concat(tupleMembers);
                     }
                     
                 }
@@ -208,7 +253,7 @@ namespace IntelliVerilog.Core.Components {
 
         public GeneralizedPortFlags Flags => GeneralizedPortFlags.Bundle | (Constructed ? GeneralizedPortFlags.Constructed : 0);
 
-        public DataType UntypedType => throw new NotSupportedException();
+        public DataType UntypedType { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
         [IoIgnore]
         public IUntypedDeclPort Creator => throw new NotSupportedException();
         [IoIgnore]

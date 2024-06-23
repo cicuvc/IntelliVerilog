@@ -47,6 +47,23 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
         public BoolNonEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
         }
     }
+
+    public class BoolGreaterExpression : BinaryRelationExpression<Bool> {
+        public BoolGreaterExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        }
+    }
+    public class BoolGreaterEqualExpression : BinaryRelationExpression<Bool> {
+        public BoolGreaterEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        }
+    }
+    public class BoolLessEqualExpression : BinaryRelationExpression<Bool> {
+        public BoolLessEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        }
+    }
+    public class BoolLessExpression : BinaryRelationExpression<Bool> {
+        public BoolLessExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        }
+    }
     public class BoolAlgebra : IAlg<Bool> {
         public static BoolAlgebra Instance { get; } = new();
         public RightValue<Bool> AddExpression(RightValue<Bool> lhs, RightValue<Bool> rhs)
@@ -76,6 +93,17 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
         public RightValue<Bool> GetSelectionValue(RightValue<Bool> lhs, Range range) {
             throw new NotImplementedException();
         }
+
+        public RightValue<Bool> GreaterEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs)
+            => new BoolGreaterEqualExpression(lhs, rhs);
+
+        public RightValue<Bool> GreaterExpression(RightValue<Bool> lhs, RightValue<Bool> rhs)
+            => new BoolGreaterExpression(lhs, rhs);
+        public RightValue<Bool> LessEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs)
+            => new BoolLessEqualExpression(lhs, rhs);
+
+        public RightValue<Bool> LessExpression(RightValue<Bool> lhs, RightValue<Bool> rhs)
+            => new BoolLessExpression(lhs, rhs);
 
         public RightValue<Bool> MulExpression(RightValue<Bool> lhs, RightValue<Bool> rhs)
             => new BoolMulExpression(lhs, rhs);
