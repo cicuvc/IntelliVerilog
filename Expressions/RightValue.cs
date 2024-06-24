@@ -198,6 +198,9 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
     public static RightValue<TData> operator ~(RightValue<TData> lhs) {
         return lhs.TypedAlgebra.NotExpression(lhs);
     }
+    public RightValue<TCast> Cast<TCast>() where TCast : DataType, IDataType<TCast> {
+        return new CastExpression<TCast>(TCast.CreateWidth(Type.WidthBits), this);
+    }
 
     public RightValue<Bool> this[uint index] {
         get => throw new NotImplementedException();
@@ -241,7 +244,7 @@ public class CastExpression<TDest> : RightValue<TDest>, IUntypedUnaryExpression 
 
     public override bool Equals(AbstractValue? other) {
         if(other is CastExpression<TDest> expression) {
-            return expression.SourceValue.Equals(SourceValue) && expression.Type == Type; 
+            return expression.SourceValue.Equals(SourceValue) && expression.Type.Equals(Type); 
         }
         return false;
     }

@@ -6,8 +6,10 @@ using IntelliVerilog.Core.Runtime.Injection;
 using IntelliVerilog.Core.Utils;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
@@ -24,6 +26,15 @@ namespace IntelliVerilog.Core.Analysis {
                     TrackTupleTypes(i.FieldType, typeList);
                 }
             }
+        }
+        private bool IsTupleIoLike(Type type) {
+            if (!type.IsAssignableTo(typeof(ITuple)) && type.IsValueType) return false;
+            foreach (var i in type.GetFields()) {
+                if (!i.FieldType.IsAssignableTo(typeof(IUntypedPort))) {
+                    if (!IsTupleIoLike(i.FieldType)) return false;
+                }
+            }
+            return true;
         }
         private bool IsStoreLocal((ILOpCode opcode,long operand) code, out int index) {
             index = code.opcode switch {
@@ -126,51 +137,38 @@ namespace IntelliVerilog.Core.Analysis {
                 }
             }
 
-            foreach (var i in editor) {
-                if(i.code == ILOpCode.Call) {
-                    var target = proxy.ResolveMethod(mainModule,(uint)i.operand);
-                    if(target is MethodInfo targetMethod) {
-                        if (targetMethod.IsConstructedGenericMethod) {
-                            if (targetMethod.GetGenericMethodDefinition() == useIoBundleMethod) {
-                                var typeGeneric = targetMethod.GetGenericArguments();
-                                ioPortTypes.Add(typeGeneric[0]);
-                                IvLogger.Default.Verbose("ModuleCompiler", $"Find IO type {ReflectionHelpers.PrettyTypeName(typeGeneric[0])}");
-                            }
-                            continue;
-                        }
-                        if(useIoDefaultMethod != null) {
-                            if (targetMethod.MethodHandle == useIoDefaultMethod.MethodHandle) {
-                                var elementType = targetMethod.ReturnType.GetElementType()!;
-                                ioPortTypes.Add(elementType);
-                                TrackTupleTypes(elementType, ioPortTypes);
-                                IvLogger.Default.Verbose("ModuleCompiler", $"Find default IO type {ReflectionHelpers.PrettyTypeName(targetMethod.ReturnType)}");
-                            }
-                        }
-                        
-                    }
+            foreach(var i in editor) {
+                var info = ILEditor.GetOpCodeInfo(i.code);
+                var type = info.OperandType switch {
+                    OperandType.InlineType => mainModule.ResolveType((int)i.operand),
+                    OperandType.InlineField => mainModule.ResolveField((int)i.operand).DeclaringType,
+                    _ => null
+                } ;
+                if (type != null) {
                     
+                    if (type.IsByRef) type = type.GetElementType();
+                    if (IsTupleIoLike(type)) {
+                        if (!ioPortTypes.Contains(type)) {
+                            ioPortTypes.Add(type);
+                            TrackTupleTypes(type, ioPortTypes);
+                            IvLogger.Default.Verbose("ModuleCompiler", $"Find IO type {ReflectionHelpers.PrettyTypeName(type)}");
+                        }
+                    }
                 }
             }
             foreach(var i in methodBody.LocalVariables) {
-                if (i.LocalType.IsSubclassOf(typeof(Components.Module))) {
-                    var moduleTupledType = i.LocalType;
-                    for(; moduleTupledType!= typeof(Components.Module); moduleTupledType= moduleTupledType.BaseType) {
-                        if (moduleTupledType.IsConstructedGenericType) {
-                            if(moduleTupledType.GetGenericTypeDefinition() == typeof(Components.Module<>)) {
-                                break;
-                            }
-                        }
+                var type = i.LocalType;
+                if (type.IsByRef) type = type.GetElementType();
+                if (IsTupleIoLike(type)) {
+                    if (!ioPortTypes.Contains(type)) {
+                        ioPortTypes.Add(type);
+                        TrackTupleTypes(type, ioPortTypes);
+                        IvLogger.Default.Verbose("ModuleCompiler", $"Find IO type {ReflectionHelpers.PrettyTypeName(type)}");
                     }
-                    if(moduleTupledType != typeof(Components.Module)) {
-                        var defaultPortType = moduleTupledType.GetGenericArguments()[0];
-                        ioPortTypes.Add(defaultPortType);
-                        
-
-                        IvLogger.Default.Verbose("ModuleCompiler", $"Find default IO type {ReflectionHelpers.PrettyTypeName(defaultPortType)}");
-                    }
-
                 }
             }
+
+ 
 
             var tupleSetHook = typeof(IoAccessHooks).GetMethod("NotifyIoTupleSet", BindingFlags.Static | BindingFlags.Public);
             for (var i = 0; i < editor.Count; i++) {

@@ -60,33 +60,35 @@ namespace IntelliVerilog.Core.Examples {
     public class MuxDemo : Module<
         (Input<UInt> a,
         Input<UInt> b,
-        Input<Bool> en,
-        Output<UInt> output,
-        Output<Bool> o2)
+        Input<UInt> en,
+        Output<UInt> output)
         > {
         public MuxDemo(uint bits) {
             ref var io = ref UseDefaultIo(new() {
                 a = bits.Bits(),
                 b = bits.Bits(),
+                en = bits.Bits(),
                 output = bits.Bits(),
             });
 
-            io.o2 = io.a.RValue[0];
-
-            io.output = io.a.RValue;
-
-            switch (io.a.RValue.ToSwitch<TestEnum>()) {
-                case TestEnum.Hello: {
-                    io.output = io.a.RValue;
-                    break;
-                }
-                case TestEnum.World: {
-                    io.output = io.b.RValue;
-                    break;
-                }
+            var idModule = new IdentiMod[bits];
+            for(var i = 0; i < bits; i++) {
+                idModule[i] = new IdentiMod(1);
+                idModule[i].IO.inValue = io.a[i].Cast<UInt>();
+                io.output[i] = idModule[i].IO.outValue[0];
             }
 
-
+            //if (io.en[0]) {
+            //    io.output[0] = io.b[0];
+            //}　else {
+            //    for (var i = 0; i < bits; i++) {
+            //        if (io.en[i]) {
+            //            io.output[i] = io.b[i];
+            //        }
+            //    }
+            //}
+           
+            
         }
     }
 }

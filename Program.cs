@@ -262,6 +262,7 @@ public class BehaviorContext {
     protected List<IBranchLikeDesc> m_ActiveBranch = new();
     protected CheckPointRecorder m_Recorder;
     protected PrimaryExit m_EndOp;
+    protected CheckPoint<bool>? m_EndCheckPoint;
     public bool IsInBranchContext => m_ActiveBranch.Count > 1;
     public IBranchLikeDesc Root => m_ActiveBranch[0];
     public BranchDesc TypedRoot => (BranchDesc)m_ActiveBranch[0];
@@ -278,7 +279,11 @@ public class BehaviorContext {
     }
     
     public void ConstructionEnd() {
-        if(UnwindBranches(e => e == m_EndOp)) {
+        if (m_EndCheckPoint == null) {
+            m_EndCheckPoint = m_Recorder.MakeCheckPoint(false);
+        }
+        if (m_EndCheckPoint.Result) return;
+        if (UnwindBranches(e => e == m_EndOp)) {
             ProcessBranchMerge();
         }
     }
@@ -299,6 +304,7 @@ public class BehaviorContext {
         })) {
             ProcessBranchMerge();
 
+            m_Recorder.RestoreCheckPoint(m_EndCheckPoint, true);
             throw new UnreachableException();
         } else {
             var enumValues = Enum.GetValues<TEnum>();
@@ -323,6 +329,7 @@ public class BehaviorContext {
         })) {
             ProcessBranchMerge();
 
+            m_Recorder.RestoreCheckPoint(m_EndCheckPoint, true);
             throw new UnreachableException();
         } else {
             var condDesc = new PrimaryCondEval(returnAddress, condition);
@@ -454,7 +461,7 @@ public unsafe static class App {
 
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new OperatorTest(3);
+            var adder = new Adder(3);
 
             var codeGen = new VerilogGenerator();
             var generatedModel = new Dictionary<ComponentModel, Components.Module>();

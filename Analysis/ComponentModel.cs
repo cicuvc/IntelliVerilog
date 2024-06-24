@@ -715,6 +715,14 @@ namespace IntelliVerilog.Core.Analysis {
             if(wire.ClockDom != null)
                 RegisterClockDomain(wire.ClockDom);
         }
+        public void AddSubComponent(ComponentBase subComponent) {
+            var identifier = $"M{Utility.GetRandomStringHex(16)}";
+            var group = new SubComponentDesc(identifier) { subComponent };
+            subComponent.CatagoryName = identifier;
+            subComponent.Name = () => $"{identifier}_{group.IndexOf(subComponent)}";
+
+            m_SubComponentObjects.Add(identifier, group);
+        }
         public void AssignLocalSubComponent(string name, ComponentBase subComponent) {
             if (!m_SubComponentObjects.ContainsKey(name)) {
                 m_SubComponentObjects.Add(name, new SubComponentDesc(name));

@@ -13,8 +13,9 @@ using System.Threading.Tasks;
 namespace IntelliVerilog.Core.DataTypes {
     public interface IDataType<TData> where TData: DataType {
         public static abstract TData CreateDefault();
+        public static abstract TData CreateWidth(uint width);
     }
-    public abstract class DataType {
+    public abstract class DataType :IEquatable<DataType> {
         public bool IsDeclaration { get; }
         public uint WidthBits { get; }
         public bool IsWidthSpecified => WidthBits != uint.MaxValue;
@@ -24,6 +25,13 @@ namespace IntelliVerilog.Core.DataTypes {
         }
         public abstract IAlg DefaultAlgebra { get; }
         public abstract DataType CreateWithWidth(uint bits);
+
+        public bool Equals(DataType? other) {
+            if (other == null) return false;
+            if (other.GetType() == GetType()) return WidthBits == other.WidthBits;
+            return false;
+        }
+
     }
     public class Bool : DataType, IDataType<Bool> {
         public Bool(bool isDecl = true) : base(1, isDecl) {
@@ -32,7 +40,10 @@ namespace IntelliVerilog.Core.DataTypes {
         public override IAlg DefaultAlgebra => BoolAlgebra.Instance;
 
         public static Bool CreateDefault() => new();
-
+        public static Bool CreateWidth(uint bits) {
+            Debug.Assert(bits == 0);
+            return new Bool();
+        }
         public override DataType CreateWithWidth(uint bits) {
             Debug.Assert(bits == 0);
             return new Bool();
@@ -58,6 +69,10 @@ namespace IntelliVerilog.Core.DataTypes {
 
         public override DataType CreateWithWidth(uint bits) {
             return new UInt(bits);
+        }
+
+        public static UInt CreateWidth(uint width) {
+            return new UInt(width);
         }
 
         public override IAlg DefaultAlgebra => UIntAlgebra.Instance;

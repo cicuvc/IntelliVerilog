@@ -648,6 +648,13 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     return lhs;
                 }
                 if (value is UIntNotExpression) return new VerilogNotOperator(lhs);
+                if (value is GeneralBitsSelectionExpression selectionExpression) {
+                    var baseExpression = ConvertExpressions(selectionExpression.BaseExpression, model, module);
+                    var selection = new VerilogRangeSelection(baseExpression, selectionExpression.SelectedRange, (int)selectionExpression.BaseExpression.Type.WidthBits);
+
+                    return selection;
+                }
+
                 throw new NotImplementedException();
 
             }
@@ -686,12 +693,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
                 return register.Identifier;
             }
-            if(value is GeneralBitsSelectionExpression selectionExpression) {
-                var baseExpression = ConvertExpressions(selectionExpression.BaseExpression, model, module);
-                var selection = new VerilogRangeSelection(baseExpression, selectionExpression.SelectedRange, (int)selectionExpression.BaseExpression.Type.WidthBits);
-
-                return selection;
-            }
+            
             if(value is IWireRightValueWrapper wireWrapper) {
                 var wire = module.ExplicitWires[wireWrapper.UntyedWire];
                 Debug.Assert(wire != null);

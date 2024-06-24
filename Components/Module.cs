@@ -52,6 +52,11 @@ namespace IntelliVerilog.Core.Components {
             m_BoxedIoPorts = default(TIoPorts);
             base.StartConstruction(ref module);
         }
+        protected override void InitExternalPorts() {
+            m_BoxedIoPorts = default(TIoPorts);
+
+            base.InitExternalPorts();
+        }
     }
 
     [ModuleCompilerIgnore]
@@ -111,6 +116,13 @@ namespace IntelliVerilog.Core.Components {
         }
         protected void ModuleConstructorExit() {
             InitExternalPorts();
+
+            var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
+            if(context.CurrentComponent != null) {
+                var model = context.CurrentComponent.InternalModel as ComponentBuildingModel;
+                model.AddSubComponent(this);
+            }
+
         }
         protected IUntypedPort MakeInternalSinglePort(IoMemberInfo ioMember, IoBundle dstPortContainer, IUntypedPort? refPortValue) {
             var dstValue = ioMember.GetValue(dstPortContainer);
@@ -172,7 +184,8 @@ namespace IntelliVerilog.Core.Components {
                 }
             }
         }
-        protected void InitExternalPorts() {
+        protected virtual void InitExternalPorts() {
+            
             InitExternalBundles(this);
 
             foreach (var key in m_InternalModel!.IoPortShape) {
