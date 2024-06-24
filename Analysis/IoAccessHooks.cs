@@ -56,16 +56,14 @@ namespace IntelliVerilog.Core.Analysis {
             var buildingModel = analysisContext.CurrentComponent.InternalModel as ComponentBuildingModel;
 
 
-            if (!Unsafe.IsNullRef(ref oldRef)) {
-                return ref oldRef;
-            } else {
-                if (value is Wire wire) {
-                    buildingModel.AssignWire(localName, wire);
-                }
-                if(value is Reg register) {
-                    buildingModel.AssignReg(localName, register);
-                }
+
+            if (value is Wire wire) {
+                buildingModel.AssignEntityName(localName, wire);
             }
+            if (value is Reg register) {
+                buildingModel.AssignEntityName(localName, register);
+            }
+
             return ref value;
         }
         public static object NotifyLocalVariableWrite(object value, object oldValue, nint methodHandle, nint typeHandle, int localIndex) {
@@ -91,7 +89,7 @@ namespace IntelliVerilog.Core.Analysis {
                 return staged;
             }
             if(value is ComponentBase subComponent) {
-                buildingModel.AssignLocalSubComponent(localName, subComponent);
+                buildingModel.AssignEntityName(localName, subComponent);
 
                 IvLogger.Default.Verbose("ModuleConstructionHooks", $"Got sub component '{localName}'");
             }

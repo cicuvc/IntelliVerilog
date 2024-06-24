@@ -291,17 +291,19 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         public VerilogAstNode BaseValue { get; }
         public SpecifiedRange SelectedRange { get; set; }
         public int TotalBits { get; }
+        public bool CanOmitIndexing { get; }
         public override bool NoLineEnd => false;
-        public VerilogRangeSelection(VerilogAstNode baseValue, SpecifiedRange range, int totalBits) {
+        public VerilogRangeSelection(VerilogAstNode baseValue, SpecifiedRange range, int totalBits,bool canOmitIndexing = true) {
             BaseValue = baseValue;
             SelectedRange = range;
             TotalBits = totalBits;
+            CanOmitIndexing = canOmitIndexing;
         }
 
         public override void GenerateCode(VerilogGenerationContext context) {
             BaseValue.GenerateCode(context);
 
-            if (TotalBits == 1) return;
+            if (TotalBits == 1 && CanOmitIndexing) return;
             var start = SelectedRange.Left;
             var end = SelectedRange.Right - 1;
             if (start == end) {
@@ -446,7 +448,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                         context.AppendLine();
                     }
                 }
-                context.AppendLine("else begin");
+                context.AppendLine("end else begin");
                 using (context.BeginIndent()) {
                     GenerateBody(context);
                 }
@@ -676,8 +678,8 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 
             }
             if (value is INamedStageExpression namedStaged) {
-                var desc = namedStaged.StageDesc;
-                var index = desc.IndexOf(namedStaged);
+                var desc = namedStaged.Descriptor;
+                var index = ((List<INamedStageExpression>)desc).IndexOf(namedStaged);
                 var identifier = new VerilogPureIdentifier(desc.InstanceName);
                 var selection = new VerilogRangeSelection(identifier, new(index, index+1), desc.Count);
 
@@ -773,7 +775,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 foreach (var portInfo in subModel.IoPortShape) {
                     if(portInfo.Direction == IoPortDirection.Output) {
 
-                        var portName = portInfo.Name();
+                        var portName = $"{instName}_{portInfo.Name()}";
                         var portType = portInfo.Direction switch {
                             IoPortDirection.Input => VerilogIoType.Input,
                             IoPortDirection.Output => VerilogIoType.Output,
@@ -788,7 +790,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                         var path = portInfo.Location;
                         for (var j=0;j< subComponentInstGroup.Count; j++) {
                             var externalOutput = path.TraceValue(subComponentInstGroup[j]);
-                            var selection = new VerilogRangeSelection(wireDef.Identifier, new(j,(j + 1)), instGroup.Count);
+                            var selection = new VerilogRangeSelection(wireDef.Identifier, new(j,(j + 1)), instGroup.Count, false);
                             
                             moduleAst.SubModuleOutputMap.Add(externalOutput, selection);
                         }
@@ -868,6 +870,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
                                 var exportWire = moduleAst.SubModuleOutputMap[externalOutput];
 
+
                                 modelInst.PortConnections.Add((portName, exportWire));
                             }
                             if (portInfo.Direction == IoPortDirection.Input) {
@@ -912,8 +915,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 }
                 return true;
             }));
-
-            moduleAst.Contents.Add(alwaysCombBlock);
+            if(alwaysCombBlock.SubNodes.Count!=0) moduleAst.Contents.Add(alwaysCombBlock);
 
 
             foreach(var i in componentModel.UsedClockDomains) {

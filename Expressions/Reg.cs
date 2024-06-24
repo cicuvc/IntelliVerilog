@@ -1,5 +1,6 @@
 ﻿using IntelliVerilog.Core.Analysis;
 using IntelliVerilog.Core.DataTypes;
+using IntelliVerilog.Core.Utils;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -28,12 +29,21 @@ namespace IntelliVerilog.Core.Expressions {
             return false;
         }
     }
-    public class Reg : ClockDrivenRegister, IAssignableValue, IReferenceTraceObject, IWireLike {
-        public ClockDomain? ClockDom { get; }
-        
-        public Reg(DataType type, ClockDomain clockDom):base(type, clockDom) {
-            Name = () => "<unnamed reg>";
-            ClockDom = clockDom;
+    public abstract class Reg : ClockDrivenRegister, IAssignableValue, IReferenceTraceObject, IWireLike,IOverlappedObject, IRightValueConvertible {
+        public IOverlappedObjectDesc Descriptor { get; set; }
+        public abstract AbstractValue UntypedRValue { get; }
+
+        public Reg(DataType type, ClockDomain? clockDom):base(type, clockDom) {
+            var defaultName = $"R{Utility.GetRandomStringHex(16)}";
+            Descriptor = new RegisterOverlappedDesc(defaultName, type) { this };
+
+            Name = () => $"{Descriptor.InstanceName}_{((List<Reg>)Descriptor).IndexOf(this)}";
+
+            var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
+            var componentModel = context.CurrentComponent!.InternalModel as ComponentBuildingModel;
+
+            componentModel.AddEntity(this);
+            componentModel.RegisterClockDomain(ClockDom);
         }
         public static ref Reg<TData> New<TData>(TData type, ClockDomain? clockDom = null, bool noClockDomainCheck = false) where TData : DataType, IDataType<TData> {
             clockDom ??= ScopedLocator.GetService<ClockDomain>();
@@ -74,6 +84,7 @@ namespace IntelliVerilog.Core.Expressions {
                 return m_RValueCache;
             }
         }
+        public override AbstractValue UntypedRValue => RValue;
         public Reg(TData type, ClockDomain? clockDom) : base(type, clockDom) {
         }
 

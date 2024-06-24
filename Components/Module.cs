@@ -88,8 +88,6 @@ namespace IntelliVerilog.Core.Components {
             m_InternalModel = cache.QueryModelCache(parameters,this, out var found);
             InitializeBundle(this, this, null!);
 
-            CatagoryName = Utility.GetRandomStringHex(8);
-
             return found;
         }
         protected unsafe virtual void StartConstruction(ref Module module) {
@@ -115,12 +113,18 @@ namespace IntelliVerilog.Core.Components {
             context.OnExitConstruction(this);
         }
         protected void ModuleConstructorExit() {
+            InitComponentBase();
+
             InitExternalPorts();
 
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
             if(context.CurrentComponent != null) {
                 var model = context.CurrentComponent.InternalModel as ComponentBuildingModel;
-                model.AddSubComponent(this);
+                model.AddEntity(this);
+
+                foreach (var i in (InternalModel.UsedClockDomains)) {
+                    model.RegisterClockDomain(i);
+                }
             }
 
         }

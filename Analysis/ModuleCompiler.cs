@@ -82,10 +82,10 @@ namespace IntelliVerilog.Core.Analysis {
 
                 if (IsStoreLocal((opcode, operand), out var localIndex)){
                     var localInfo = methodBody.LocalVariables[localIndex];
-                    var rawType = localInfo.LocalType.HasElementType ? localInfo.LocalType.GetElementType() : localInfo.LocalType;
+                    var rawType = localInfo.LocalType.HasElementType ? localInfo.LocalType.GetElementType() : null;
                     if (localInfo.LocalType.IsSubclassOf(typeof(AbstractValue)) || 
                         localInfo.LocalType.IsSubclassOf(typeof(ComponentBase)) ||
-                        rawType.IsSubclassOf(typeof(Wire)) || rawType.IsSubclassOf(typeof(Reg))) {
+                        (rawType?.IsSubclassOf(typeof(Wire)) ?? false) || (rawType?.IsSubclassOf(typeof(Reg)) ?? false)) {
                         editor[i] = (ILOpCode.Br, editor.Count);
                         
                         editor.Emit(ILOpCode.Ldloc, localIndex);
@@ -93,7 +93,7 @@ namespace IntelliVerilog.Core.Analysis {
                         editor.Emit(ILOpCode.Ldc_i8, (long)method.DeclaringType!.TypeHandle.Value);
                         editor.Emit(ILOpCode.Ldc_i4, localIndex);
 
-                        var hook = rawType.IsSubclassOf(typeof(Wire)) || rawType.IsSubclassOf(typeof(Reg)) ? localVariableRefStoreHook : localVariableStoreHook;
+                        var hook = ((rawType?.IsSubclassOf(typeof(Wire)) ?? false) || (rawType?.IsSubclassOf(typeof(Reg)) ?? false)) ? localVariableRefStoreHook : localVariableStoreHook;
 
 
                         editor.Emit(ILOpCode.Call, proxy.AllocateToken(hook));

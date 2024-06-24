@@ -5,7 +5,7 @@ using System;
 using System.Reflection;
 
 namespace IntelliVerilog.Core.Expressions {
-    public abstract class IoComponent : IUntypedPort { 
+    public abstract class IoComponent : IUntypedPort, IRightValueConvertible { 
         public abstract AbstractValue UntypedRValue { get; }
         public abstract IoPortDirection Direction { get; }
         public abstract GeneralizedPortFlags Flags { get; }

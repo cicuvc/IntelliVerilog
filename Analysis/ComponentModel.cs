@@ -190,7 +190,7 @@ namespace IntelliVerilog.Core.Analysis {
         public abstract IEnumerable<(AbstractValue assignValue, SpecifiedRange range)> QueryAssignedSubComponentIoValues(IUntypedConstructionPort declComponent, ComponentBase subModule);
     
         public IEnumerable<ComponentBase> GetSubComponents() {
-            return OverlappedObjects.Where(e => e.Value is SubComponentDesc).SelectMany(e => (SubComponentDesc)e.Value);
+            return OverlappedObjects.Where(e => e.Value is SubComponentDesc).SelectMany(e => (IEnumerable<ComponentBase>)e.Value);
         }
     }
 
@@ -216,22 +216,22 @@ namespace IntelliVerilog.Core.Analysis {
             Add(new(IoComponentDecl, value, range));
         }
     }
-    public interface INamedStageExpression {
+    public interface INamedStageExpression: IOverlappedObject {
         AbstractValue InternalValue { get; }
-        SubValueStageDesc StageDesc { get; }
     }
     
-    public class NamedStageExpression<TData> : RightValue<TData> , INamedStageExpression where TData : DataType,IDataType<TData> {
+    public class NamedStageExpression<TData> : RightValue<TData> , INamedStageExpression,IOverlappedObject where TData : DataType,IDataType<TData> {
         public AbstractValue InternalValue { get; }
-        public SubValueStageDesc StageDesc { get; }
+        public IOverlappedObjectDesc Descriptor { get; set; }
+
         public NamedStageExpression(AbstractValue internalValue, SubValueStageDesc desc) : base((TData)internalValue.Type, internalValue.Algebra) {
             InternalValue = internalValue;
-            StageDesc = desc;
+            Descriptor = desc;
         }
 
         public override bool Equals(AbstractValue? other) {
             if(other is NamedStageExpression<TData> stageExpr) {
-                return stageExpr.StageDesc == StageDesc && stageExpr.InternalValue.Equals(InternalValue);
+                return stageExpr.Descriptor == Descriptor && stageExpr.InternalValue.Equals(InternalValue);
             }
             return false;
         }
@@ -247,9 +247,16 @@ namespace IntelliVerilog.Core.Analysis {
         }
     }
     public class SubComponentDesc : List<ComponentBase>, IOverlappedObjectDesc {
-        public string InstanceName { get; }
+        public string InstanceName { get; set; }
+
+        IOverlappedObject IReadOnlyList<IOverlappedObject>.this[int index] => this[index];
+
         public SubComponentDesc(string instanceName) {
             InstanceName = instanceName;
+        }
+
+        IEnumerator<IOverlappedObject> IEnumerable<IOverlappedObject>.GetEnumerator() {
+            return GetEnumerator();
         }
     }
     public class BranchLatchCheckList: List<PrimaryAssignment> {
@@ -311,8 +318,8 @@ namespace IntelliVerilog.Core.Analysis {
     public abstract class ClockDrivenRegister : RegisterDesc {
         public ClockDomain ClockDom { get; }
         public bool NoClockDomainCheck { get; set; } = false;
-        public ClockDrivenRegister(DataType type, ClockDomain clockDomain) : base(type, false) {
-            ClockDom = clockDomain;
+        public ClockDrivenRegister(DataType type, ClockDomain? clockDomain) : base(type, false) {
+            ClockDom = clockDomain ?? ScopedLocator.GetService<ClockDomain>() ?? throw new Exception("Unknown clock domain");
         }
         public override AssignmentInfo CreateAssignmentInfo() {
             return new RegAssignmentInfo(this);
@@ -407,15 +414,50 @@ namespace IntelliVerilog.Core.Analysis {
     public interface IWireLike {
         Func<string> Name { get; set; }
     }
-    public interface IOverlappedObjectDesc:IList,IEnumerable {
-        string InstanceName { get; }
+    public interface IOverlappedObject {
+        IOverlappedObjectDesc Descriptor { get; set; }
+
+    }
+    public interface IOverlappedObjectDesc:IReadOnlyList<IOverlappedObject>,IEnumerable {
+        string InstanceName { get; set; }
+    }
+    public class WireOverlappedDesc : List<Wire>, IOverlappedObjectDesc {
+        public string InstanceName { get; set; }
+        public DataType UntypedType { get; }
+
+        IOverlappedObject IReadOnlyList<IOverlappedObject>.this[int index] => this[index];
+
+        public WireOverlappedDesc(string instanceName, DataType type) {
+            InstanceName = instanceName;
+            UntypedType = type;
+        }
+
+        IEnumerator<IOverlappedObject> IEnumerable<IOverlappedObject>.GetEnumerator() {
+            return GetEnumerator();
+        }
+    }
+    public class RegisterOverlappedDesc : List<Reg>, IOverlappedObjectDesc {
+        public string InstanceName { get; set; }
+        public DataType UntypedType { get; }
+        public RegisterOverlappedDesc(string instanceName, DataType type) {
+            InstanceName = instanceName;
+            UntypedType = type;
+        }
+        IOverlappedObject IReadOnlyList<IOverlappedObject>.this[int index] => this[index];
+        IEnumerator<IOverlappedObject> IEnumerable<IOverlappedObject>.GetEnumerator() {
+            return GetEnumerator();
+        }
     }
     public class SubValueStageDesc:List<INamedStageExpression>, IOverlappedObjectDesc {
-        public string InstanceName { get; }
+        public string InstanceName { get; set; }
         public DataType UntypedType { get; }
         public SubValueStageDesc(string instanceName,DataType type) {
             InstanceName = instanceName;
             UntypedType = type;
+        }
+        IOverlappedObject IReadOnlyList<IOverlappedObject>.this[int index] => this[index];
+        IEnumerator<IOverlappedObject> IEnumerable<IOverlappedObject>.GetEnumerator() {
+            throw new NotImplementedException();
         }
     }
     public class ComponentBuildingModel : ComponentModel {
@@ -672,19 +714,18 @@ namespace IntelliVerilog.Core.Analysis {
         }
  
         public AbstractValue AssignLocalSignalVariable(Type dataType, string name, AbstractValue rightValue) {
-            if (!m_SubComponentObjects.ContainsKey(name)) m_SubComponentObjects.Add(name, new SubValueStageDesc(name,rightValue.Type));
+            if (!m_SubComponentObjects.ContainsKey(name))
+                m_SubComponentObjects.Add(name, new SubValueStageDesc(name,rightValue.Type));
+
             var desc = m_SubComponentObjects[name];
 
             var namedType = typeof(NamedStageExpression<>).MakeGenericType(dataType);
             var stagedValue = (INamedStageExpression)namedType.GetConstructor(new Type[] {typeof(AbstractValue),typeof(SubValueStageDesc) })
                 .Invoke(new object[] { rightValue, desc });
 
-            desc.Add(stagedValue);
+            ((IList)desc).Add(stagedValue);
 
             return (AbstractValue)stagedValue;
-        }
-        public void AssignWire(string name, Wire wire) {
-            wire.Name = () => name;
         }
         public void RegisterClockDomain(ClockDomain clkDomain) {
             if (!m_ClockDomains.Contains(clkDomain)) {
@@ -708,50 +749,34 @@ namespace IntelliVerilog.Core.Analysis {
                 }
             }
         }
-        public void AssignReg(string name, Reg wire) {
-            Debug.Assert(m_Registers.Contains(wire));
-            wire.Name = () => name;
-
-            if(wire.ClockDom != null)
-                RegisterClockDomain(wire.ClockDom);
-        }
-        public void AddSubComponent(ComponentBase subComponent) {
-            var identifier = $"M{Utility.GetRandomStringHex(16)}";
-            var group = new SubComponentDesc(identifier) { subComponent };
-            subComponent.CatagoryName = identifier;
-            subComponent.Name = () => $"{identifier}_{group.IndexOf(subComponent)}";
-
-            m_SubComponentObjects.Add(identifier, group);
-        }
-        public void AssignLocalSubComponent(string name, ComponentBase subComponent) {
-            if (!m_SubComponentObjects.ContainsKey(name)) {
-                m_SubComponentObjects.Add(name, new SubComponentDesc(name));
-            }
-            var newGroup = m_SubComponentObjects[name];
-            newGroup.Add(subComponent);
-
-            if (m_SubComponentObjects.ContainsKey(subComponent.CatagoryName)) {
-                var oldGroup = m_SubComponentObjects[subComponent.CatagoryName];
-                oldGroup.Remove(subComponent);
-
-                if (oldGroup.Count == 0) m_SubComponentObjects.Remove(oldGroup.InstanceName);
-            }
-
-            subComponent.CatagoryName = name;
-            subComponent.Name = () => {
-                var componentSet = m_SubComponentObjects[subComponent.CatagoryName];
-                return $"{componentSet.InstanceName}_{componentSet.IndexOf(subComponent)}";
-            };
-
-            foreach(var i in (subComponent.InternalModel.UsedClockDomains)) {
-                RegisterClockDomain(i);
+        public void AddEntity(IOverlappedObject overlapped) {
+            if (m_SubComponentObjects.ContainsKey(overlapped.Descriptor.InstanceName)) {
+                throw new Exception("What?");
+            } else {
+                m_SubComponentObjects.Add(overlapped.Descriptor.InstanceName, overlapped.Descriptor);
             }
         }
-        protected SubComponentDesc GetSubComponentDesc(ComponentBase subComponent) {
-            if (!m_SubComponentObjects.ContainsKey(subComponent.CatagoryName)) {
-                m_SubComponentObjects.Add(subComponent.CatagoryName, new SubComponentDesc(subComponent.CatagoryName));
+        public void AssignEntityName(string name, IOverlappedObject overlapped) {
+            if (m_SubComponentObjects.ContainsKey(name)) {
+                var desc = m_SubComponentObjects[name];
+
+                if (desc != overlapped.Descriptor) {
+                    var untypedList = (IList)desc;
+                    untypedList.Add(overlapped);
+
+                    Debug.Assert(overlapped.Descriptor.Count == 1);
+                    m_SubComponentObjects.Remove(overlapped.Descriptor.InstanceName);
+
+                    overlapped.Descriptor = desc;
+                } else {
+                    throw new NotImplementedException();
+                }
+            } else {
+                m_SubComponentObjects.Remove(overlapped.Descriptor.InstanceName);
+
+                overlapped.Descriptor.InstanceName = name;
+                m_SubComponentObjects.Add(name, overlapped.Descriptor);
             }
-            return (SubComponentDesc)m_SubComponentObjects[subComponent.CatagoryName];
         }
 
 
@@ -935,16 +960,22 @@ namespace IntelliVerilog.Core.Analysis {
             }
         }
         protected AbstractValue ResolveRightValue(object rightValue) {
+            
             if (rightValue is IExpressionAssignedIoType expression) {
                 return expression.UntypedExpression;
             }
             if (rightValue is IUntypedConstructionPort portLike) {
                 return portLike.UntypedRValue;
             }
+            if (rightValue is IRegRightValueWrapper) return (AbstractValue)rightValue;
+            if(rightValue is IWireRightValueWrapper) return (AbstractValue)rightValue;
+            if (rightValue is IRightValueConvertible convertible) {
+                return ResolveRightValue(convertible.UntypedRValue);
+            }
             throw new NotImplementedException();
         }
         public override IEnumerable<(AbstractValue assignValue, SpecifiedRange range)> QueryAssignedSubComponentIoValues(IUntypedConstructionPort declComponent, ComponentBase subModule) {
-            var componentDesc = GetSubComponentDesc(subModule);
+            var componentDesc = (SubComponentDesc)(subModule).Descriptor;
             return m_GenericAssignments.Where((e) => {
                 if(e.Key is IUntypedConstructionPort port) {
                     if (port.InternalPort == declComponent && port.Component == subModule) return true;

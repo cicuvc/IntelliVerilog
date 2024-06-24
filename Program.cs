@@ -416,16 +416,7 @@ public unsafe class ReturnAddressTracker {
         throw new NotImplementedException();
     }
 }
-public struct UB {
-    public int x;
-    public int y;
-}
-public struct UC {
-    public UB v;
-}
-public struct UA {
-    public UC v;
-}
+
 public unsafe static class App {
     public static void Main() {
         Debugger.Break();
@@ -461,7 +452,7 @@ public unsafe static class App {
 
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new Adder(3);
+            var adder = new PipelinedMultiplier(3,4);
 
             var codeGen = new VerilogGenerator();
             var generatedModel = new Dictionary<ComponentModel, Components.Module>();

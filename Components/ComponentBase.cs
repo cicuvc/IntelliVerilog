@@ -6,13 +6,29 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 
 namespace IntelliVerilog.Core.Components {
-    public abstract class ComponentBase : IoBundle, ILazyNamedObject {
+    public abstract class ComponentBase : IoBundle, ILazyNamedObject, IOverlappedObject {
         public abstract ComponentModel InternalModel { get; }
-        public string? CatagoryName { get; set; }
-        public Func<string> Name { get; set; } = () => "<unnamed module>";
+
+        public IOverlappedObjectDesc Descriptor { get; set; }
+
         public abstract bool IsModuleIo<TIoPorts>(ref TIoPorts portReference) where TIoPorts: struct, ITuple;
         public abstract bool IsModuleIo(object portReference);
+
+        protected void InitComponentBase() {
+            var defaultName = $"M{Utility.GetRandomStringHex(16)}";
+
+            Descriptor = new SubComponentDesc(defaultName) { this };
+            Name = () => {
+                return $"{Descriptor.InstanceName}_{((SubComponentDesc)Descriptor).IndexOf(this)}";
+            };
+        }
+        public ComponentBase() {
+            Descriptor = null!;
+            Name = null!;
+            InitComponentBase();
+        }
     }
 }

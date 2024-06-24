@@ -1,5 +1,6 @@
 ﻿using IntelliVerilog.Core.Analysis;
 using IntelliVerilog.Core.DataTypes;
+using IntelliVerilog.Core.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -27,12 +28,20 @@ namespace IntelliVerilog.Core.Expressions {
             return false;
         }
     }
-    public class Wire : IAssignableValue,IReferenceTraceObject,IWireLike {
+    public abstract class Wire : IAssignableValue,IReferenceTraceObject,IWireLike, IOverlappedObject,IRightValueConvertible {
         public DataType UntypedType { get; }
 
         public Func<string> Name { get; set; } = () => "<unnamed wire>";
+
+        public IOverlappedObjectDesc Descriptor { get; set; }
+
+        public abstract AbstractValue UntypedRValue { get; }
+
         public Wire(DataType type) {
+            var defaultName = $"W{Utility.GetRandomStringHex(16)}";
+
             UntypedType = type;
+            Descriptor = new WireOverlappedDesc(defaultName, type) { this };
         }
         public static ref Wire<TData> New<TData>(TData type) where TData : DataType, IDataType<TData> {
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
@@ -68,6 +77,7 @@ namespace IntelliVerilog.Core.Expressions {
                 return m_RValueCache;
             }
         }
+        public override AbstractValue UntypedRValue => RValue;
         public Wire(TData type) : base(type) {
         }
         
