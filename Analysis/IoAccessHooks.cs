@@ -121,10 +121,25 @@ namespace IntelliVerilog.Core.Analysis {
                         var fieldInfo = (FieldInfo)j.Member;
                         var leftValue = (IAssignableValue)j.GetValue(i);
                         var rightValue = fieldInfo.GetValue(box);
-                        buildingModel.AssignSubModuleConnections(leftValue, rightValue, .., returnAddress);
+                        if (rightValue != null) {
+                            buildingModel.AssignSubModuleConnections(leftValue, rightValue, .., returnAddress);
+                        }
                     }
                     return;
                 }
+            }
+            if(module.IsModuleIo(ref target)) {
+                var ioAux = IoComponentProbableHelpers.QueryProbeAuxiliary(module.GetType());
+                var box = (object)value;
+                foreach (var j in ioAux.GetIoMembers(module.GetType())) {
+                    var fieldInfo = (FieldInfo)j.Member;
+                    var leftValue = (IAssignableValue)j.GetValue(module);
+                    var rightValue = fieldInfo.GetValue(box);
+                    if (rightValue != null) {
+                        buildingModel.AssignSubModuleConnections(leftValue, rightValue, .., returnAddress);
+                    }
+                }
+                return;
             }
 
             throw new NotImplementedException();

@@ -59,6 +59,18 @@ namespace IntelliVerilog.Core.Expressions {
             var pointerStorage = componentModel.RegisterReg(Reg);
             return ref Unsafe.As<IReferenceTraceObject, Reg<TData>>(ref pointerStorage.Pointer);
         }
+        public static ref Reg<TData> Next<TData>(TData type, RightValue<TData> inputValue ,ClockDomain? clockDom = null, bool noClockDomainCheck = false) where TData : DataType, IDataType<TData> {
+            ref var register = ref New(type, clockDom, noClockDomainCheck);
+
+            var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
+            var componentModel = context.CurrentComponent!.InternalModel as ComponentBuildingModel;
+
+            var returnAddressTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
+            var returnAddress = returnAddressTracker.TrackReturnAddress(inputValue, paramIndex: 3);
+            componentModel.AssignSubModuleConnections(register, inputValue, .., returnAddress);
+
+            return ref register;
+        }
 
         public AssignmentInfo CreateAssignmentInfo() {
             return new RegAssignmentInfo(this);

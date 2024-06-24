@@ -452,7 +452,7 @@ public unsafe static class App {
 
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new PipelinedMultiplier(3,4);
+            var adder = new TupleWholeAssignTest(3);
 
             var codeGen = new VerilogGenerator();
             var generatedModel = new Dictionary<ComponentModel, Components.Module>();

@@ -8,6 +8,20 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.Examples.TestSuites {
+    public class TupleWholeAssignTest: Module<(
+        Input<UInt> x,
+        Input<UInt> y,
+        Output<UInt> add,
+        Output<UInt> sub)> {
+        public TupleWholeAssignTest(uint width) {
+            ref var io = ref UseDefaultIo(new() { 
+                x = width.Bits(),
+                y = width.Bits()
+            });
+
+            io = (default!, default!, io.x + io.y, io.x - io.y);
+        }
+    }
     public class OperatorTest : Module<(
         Input<UInt> x,
         Input<UInt> y,

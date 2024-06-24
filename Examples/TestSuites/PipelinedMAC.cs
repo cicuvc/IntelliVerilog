@@ -24,10 +24,7 @@ namespace IntelliVerilog.Core.Examples.TestSuites {
             ref var reg0 = ref Reg.New(width.Bits());
             reg0 = io.inValue.RValue;
             for (var i = 1; i < depth; i++) {
-                var stagedValue = reg0;
-
-                reg0 = ref Reg.New(width.Bits())!;
-                reg0 = stagedValue;
+                reg0 = ref Reg.Next(width.Bits(), reg0.RValue)!;
             }
             io.output = reg0.RValue;
         }
@@ -47,7 +44,7 @@ namespace IntelliVerilog.Core.Examples.TestSuites {
             var xFiFo = new FiFo(delay, width);
             xFiFo.IO.inValue = io.x;
             var yFiFo = new FiFo(delay, width);
-            yFiFo.IO.inValue = io.x;
+            yFiFo.IO.inValue = io.y;
 
             io.output = xFiFo.IO.output * yFiFo.IO.output;
         }
