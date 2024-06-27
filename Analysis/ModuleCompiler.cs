@@ -7,6 +7,7 @@ using IntelliVerilog.Core.Utils;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -50,6 +51,29 @@ namespace IntelliVerilog.Core.Analysis {
             return index >= 0;
         }
         public unsafe int CompileMethod(object? context, MethodBase method, nint pthis, nint corinfo, JitCompileInfo* methodInfo, uint flags, nint* native, uint* size) {
+            var frame = new StackFrame(3);
+            var callerMethod = frame.GetMethod()!;
+            var callerModule = callerMethod.Module;
+            var callerBody = callerMethod.GetMethodBody()!;
+            var callOpSlice = callerBody.GetILAsByteArray().AsSpan().Slice(frame.GetILOffset());
+            var (callOp, callOperand) = ILEditor.DecodeSingleOpCode(callOpSlice);
+
+            var calleeValidation = callerModule.ResolveMethod((int)callOperand);
+            if(calleeValidation.MetadataToken != method.MetadataToken) {
+                throw new Exception("Call instruction of method caller cannot be located");
+            }
+
+            var sigService = IntelliVerilogLocator.GetService<MetadataSignatureService>()!;
+            var callOperandToken = sigService.CreateEntityHandle((uint)callOperand);
+            var callerReader = sigService.GetReader(callerModule.Assembly);
+
+            if(callOperandToken.Kind == HandleKind.MemberReference) {
+                var memberRef = callerReader.Reader.GetMemberReference((MemberReferenceHandle)callOperandToken);
+                var typeSpec = callerReader.Reader.GetTypeSpecification((TypeSpecificationHandle)memberRef.Parent);
+                var sig = callerReader.Reader.GetBlobBytes(typeSpec.Signature);
+            }
+            
+
             IvLogger.Default.Verbose("ModuleCompiler", $"Transform module-like class {method.DeclaringType.FullName}");
             
             var argumentList = method.GetParameters();
@@ -137,11 +161,13 @@ namespace IntelliVerilog.Core.Analysis {
                 }
             }
 
-            foreach(var i in editor) {
+            var typeGenerics = calleeValidation.DeclaringType.IsConstructedGenericType ? calleeValidation.DeclaringType.GetGenericArguments() : null;
+
+            foreach (var i in editor) {
                 var info = ILEditor.GetOpCodeInfo(i.code);
                 var type = info.OperandType switch {
-                    OperandType.InlineType => mainModule.ResolveType((int)i.operand),
-                    OperandType.InlineField => mainModule.ResolveField((int)i.operand).DeclaringType,
+                    OperandType.InlineType => mainModule.ResolveType((int)i.operand, typeGenerics,null),
+                    OperandType.InlineField => mainModule.ResolveField((int)i.operand, typeGenerics, null).DeclaringType,
                     _ => null
                 } ;
                 if (type != null) {
@@ -174,7 +200,7 @@ namespace IntelliVerilog.Core.Analysis {
             for (var i = 0; i < editor.Count; i++) {
                 var (opcode, operand) = editor[i];
                 if(opcode == ILOpCode.Stfld) {
-                    var fieldRef = mainModule.ResolveField((int)operand)!;
+                    var fieldRef = mainModule.ResolveField((int)operand, typeGenerics,null)!;
                     if (fieldRef.DeclaringType != null && ioPortTypes.Contains(fieldRef.DeclaringType)) {
                         var tupleSetHookSpecified = tupleSetHook.MakeGenericMethod(fieldRef.DeclaringType);
 
@@ -196,7 +222,7 @@ namespace IntelliVerilog.Core.Analysis {
                 var (opcode, operand) = editor[i];
 
                 if (opcode == ILOpCode.Stobj) {
-                    var referenceType = mainModule.ResolveType((int)operand);
+                    var referenceType = mainModule.ResolveType((int)operand, typeGenerics, null);
 
                     if (referenceType != null && ioPortTypes.Contains(referenceType)) {
                         var hookFunction = notifyReferenceValueTypeWrite.MakeGenericMethod(referenceType);

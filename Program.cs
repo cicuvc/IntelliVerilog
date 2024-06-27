@@ -6,6 +6,7 @@ using IntelliVerilog.Core.DataTypes;
 using IntelliVerilog.Core.Examples;
 using IntelliVerilog.Core.Examples.TestSuites;
 using IntelliVerilog.Core.Expressions;
+using IntelliVerilog.Core.Expressions.Algebra;
 using IntelliVerilog.Core.Logging;
 using IntelliVerilog.Core.Runtime.Core;
 using IntelliVerilog.Core.Runtime.Injection;
@@ -22,6 +23,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Numerics;
+using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -417,11 +419,128 @@ public unsafe class ReturnAddressTracker {
     }
 }
 
+public class IvDefaultCodeGenerator {
+    protected Dictionary<ComponentModel, Components.Module> m_ModelCache;
+    protected Queue<Components.Module> m_GenerationQueue;
+    public async IAsyncEnumerable<string> GenerateModule() {
+        yield return "";
+    }
+}
+public class MetadataSigDecoder : ISignatureTypeProvider<Type, Type[]> {
+    public static MetadataSigDecoder Decoder { get; } = new();
+    public Type GetArrayType(Type elementType, ArrayShape shape) {
+        throw new NotImplementedException();
+    }
+
+    public Type GetByReferenceType(Type elementType) {
+        throw new NotImplementedException();
+    }
+
+    public Type GetFunctionPointerType(MethodSignature<Type> signature) {
+        throw new NotImplementedException();
+    }
+
+    public Type GetGenericInstantiation(Type genericType, System.Collections.Immutable.ImmutableArray<Type> typeArguments) {
+        throw new NotImplementedException();
+    }
+
+    public Type GetGenericMethodParameter(Type[] genericContext, int index) {
+        throw new NotImplementedException();
+    }
+
+    public Type GetGenericTypeParameter(Type[] genericContext, int index) {
+        throw new NotImplementedException();
+    }
+
+    public Type GetModifiedType(Type modifier, Type unmodifiedType, bool isRequired) {
+        throw new NotImplementedException();
+    }
+
+    public Type GetPinnedType(Type elementType) {
+        throw new NotImplementedException();
+    }
+
+    public Type GetPointerType(Type elementType) {
+        throw new NotImplementedException();
+    }
+
+    public Type GetPrimitiveType(PrimitiveTypeCode typeCode) {
+        throw new NotImplementedException();
+    }
+
+    public Type GetSZArrayType(Type elementType) {
+        throw new NotImplementedException();
+    }
+
+
+    public Type GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) {
+        var typeDef = reader.GetTypeDefinition(handle);
+        var name = reader.GetString(typeDef.Name);
+        var ns = reader.GetString(typeDef.Namespace);
+        var type = Type.GetType($"{ns}.{name}");
+        if(type == null) {
+
+        }
+        throw new NotImplementedException();
+    }
+
+    public Type GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) {
+        throw new NotImplementedException();
+    }
+
+    public Type GetTypeFromSpecification(MetadataReader reader, Type[] genericContext, TypeSpecificationHandle handle, byte rawTypeKind) {
+        throw new NotImplementedException();
+    }
+}
+public class MetadataSignaureContext {
+    protected Assembly m_Assembly;
+    protected MetadataReader m_Reader;
+    protected List<MemberReference> m_Members = new();
+    public MetadataReader Reader => m_Reader;
+    public unsafe MetadataSignaureContext(Assembly asm) {
+        m_Assembly = asm;
+        asm.TryGetRawMetadata(out var data, out var len);
+        m_Reader = new MetadataReader(data, len);
+        //CollectModuleInst();
+    }
+    protected void CollectModuleInst() {
+        foreach(var i in m_Reader.MemberReferences) {
+            var memberRef = m_Reader.GetMemberReference(i);
+            if(memberRef.Parent.Kind == HandleKind.TypeSpecification) {
+                var typeSpec = m_Reader.GetTypeSpecification((TypeSpecificationHandle)memberRef.Parent);
+
+            } else {
+                throw new NotImplementedException();
+            }
+        }
+        Debugger.Break();
+    }
+}
+public class MetadataSignatureService {
+    protected Dictionary<Assembly, MetadataSignaureContext> m_Assemblies = new();
+    protected ConstructorInfo m_CreateEntityHandle;
+    public static MetadataSignatureService Instance { get; } = new();
+    protected MetadataSignatureService() {
+        m_CreateEntityHandle = typeof(EntityHandle).GetConstructor(BindingFlags.NonPublic | BindingFlags.Instance, new Type[] { typeof(uint) })!;
+
+    }
+    public EntityHandle CreateEntityHandle(uint token) {
+        return (EntityHandle)m_CreateEntityHandle.Invoke(new object[] { token });
+    }
+    public MetadataSignaureContext GetReader(Assembly asm) {
+        if (!m_Assemblies.ContainsKey(asm)) {
+            m_Assemblies.Add(asm, new(asm));
+        }
+        return m_Assemblies[asm];
+    }
+}
 public unsafe static class App {
+
     public static void Main() {
         Debugger.Break();
-
+        
         IntelliVerilogLocator.RegisterService(ManagedDebugInfoService.Instance);
+        IntelliVerilogLocator.RegisterService(MetadataSignatureService.Instance);
         IntelliVerilogLocator.RegisterService<IDemangleSerivce>(CxxDemangle.Instance);
         
         var debugInfoLocator = new RuntimeInspectionDebugInfoLocator();
@@ -452,7 +571,7 @@ public unsafe static class App {
 
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new TupleWholeAssignTest(3);
+            var adder = new TestMem<UInt>(5u.Bits());
 
             var codeGen = new VerilogGenerator();
             var generatedModel = new Dictionary<ComponentModel, Components.Module>();

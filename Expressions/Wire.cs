@@ -69,7 +69,7 @@ namespace IntelliVerilog.Core.Expressions {
     public class Wire<TData> : Wire,
         IRightValueOps<Wire<TData>, TData>,
         IRightValueSelectionOps<TData>,
-        ILeftValueOps<TData> where TData : DataType, IDataType<TData> {
+        ILeftValueOps<TData>, IRightValueConvertible<TData> where TData : DataType, IDataType<TData> {
         protected WireRightValueWrapper<TData>? m_RValueCache = null;
         public virtual RightValue<TData> RValue {
             get {

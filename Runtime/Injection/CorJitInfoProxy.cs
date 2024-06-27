@@ -2,9 +2,13 @@
 using IntelliVerilog.Core.Runtime.Unsafe;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -170,11 +174,92 @@ namespace IntelliVerilog.Core.Runtime.Injection {
                 }
             }
 
-            if(!resolved) proxy.m_ResolveToken(pthis, tokenResolve);
+            if (!resolved) {
+                proxy.m_ResolveToken(pthis, tokenResolve);
+                if(tokenResolve->token == 0x0A00039A) {
+
+                    Debugger.Break();
+                    Assembly.GetCallingAssembly().TryGetRawMetadata(out var blob, out var len);
+
+                    var bb = new BlobReader((byte*)tokenResolve->pTypeSpec, (int)tokenResolve->cbTypeSpec);
+                    var mm = new MetadataReader(blob, len);
+                    var dec = new SignatureDecoder<string, string[]>(new SigDec(), mm, new string[] { "TData"});
+                    var va2 = dec.DecodeType(ref bb, true);
+
+                    
+                }
+            }
 
             RuntimeInjection.EnableProxy();
             m_CurrentProxy.EnableProxy();
         }
     }
+    public class SigDec : ISignatureTypeProvider<string, string[]> {
+        public string GetArrayType(string elementType, ArrayShape shape) {
+            throw new NotImplementedException();
+        }
 
+        public string GetByReferenceType(string elementType) {
+            throw new NotImplementedException();
+        }
+
+        public string GetFunctionPointerType(MethodSignature<string> signature) {
+            throw new NotImplementedException();
+        }
+
+        public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments) {
+            var sb = new StringBuilder();
+            sb.Append(genericType);
+            sb.Append('<');
+            sb.AppendJoin(',', typeArguments);
+            sb.Append('>');
+            return sb.ToString();
+        }
+
+        public string GetGenericMethodParameter(string[] genericContext, int index) {
+            throw new NotImplementedException();
+        }
+
+        public string GetGenericTypeParameter(string[] genericContext, int index) {
+            return genericContext[index];
+        }
+
+        public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) {
+            throw new NotImplementedException();
+        }
+
+        public string GetPinnedType(string elementType) {
+            throw new NotImplementedException();
+        }
+
+        public string GetPointerType(string elementType) {
+            throw new NotImplementedException();
+        }
+
+        public string GetPrimitiveType(PrimitiveTypeCode typeCode) {
+            throw new NotImplementedException();
+        }
+
+        public string GetSZArrayType(string elementType) {
+            throw new NotImplementedException();
+        }
+
+        public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) {
+            var type = reader.GetTypeDefinition(handle);
+            var name = reader.GetString(type.Name);
+            var ns = reader.GetString(type.Namespace);
+            return $"{ns}::{name}";
+        }
+
+        public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) {
+            var typeRef = reader.GetTypeReference(handle);
+            var name = reader.GetString(typeRef.Name);
+            var ns = reader.GetString(typeRef.Namespace);
+            return $"{ns}::{name}";
+        }
+
+        public string GetTypeFromSpecification(MetadataReader reader, string[] genericContext, TypeSpecificationHandle handle, byte rawTypeKind) {
+            throw new NotImplementedException();
+        }
+    }
 }

@@ -39,7 +39,14 @@ public abstract class AbstractValue :IEquatable<AbstractValue>, IRecursiveExpres
     public AbstractValue GetCombination(params AbstractValue[] values) {
         return new GeneralCombinationExpression(values[0].Type, values);
     }
-
+    public AbstractValue UnwrapCast() {
+        if (!(this is IUntypedCastExpression castExpression)) return this;
+        var castSource = castExpression.UntypedValue;
+        while (castSource is IUntypedCastExpression cast) {
+            castSource = cast.UntypedValue;
+        }
+        return castSource;
+    }
     public abstract void EnumerateSubNodes(Action<AbstractValue> callback);
 
     private void PropagateDataType(AbstractValue subNode) {
@@ -63,19 +70,21 @@ public class GeneralCombinationExpression : AbstractValue{
         foreach (var i in SubExpressions) callback(i);
     }
 }
-public class GeneralBitsSelectionExpression : AbstractValue, IUntypedUnaryExpression {
-    public AbstractValue BaseExpression { get; }
+public interface IUntypedGeneralBitSelectionExpression: IUntypedUnaryExpression {
+    SpecifiedRange SelectedRange { get; }
+}
+public class GeneralBitsSelectionExpression : AbstractValue, IUntypedGeneralBitSelectionExpression {
     public SpecifiedRange SelectedRange { get; }
 
-    public AbstractValue UntypedValue => BaseExpression;
+    public AbstractValue UntypedValue { get; }
 
     public GeneralBitsSelectionExpression(AbstractValue baseExpression, SpecifiedRange range) : base(baseExpression.Type.CreateWithWidth((uint)range.BitWidth)) {
-        BaseExpression = baseExpression;
+        UntypedValue = baseExpression;
         SelectedRange = range;
     }
     public override bool Equals(AbstractValue? other) {
         if (other is GeneralBitsSelectionExpression expression) {
-            if (expression.SelectedRange.Equals(SelectedRange) && expression.BaseExpression.Equals(BaseExpression)) {
+            if (expression.SelectedRange.Equals(SelectedRange) && expression.UntypedValue.Equals(UntypedValue)) {
                 return true;
             }
         }
@@ -83,7 +92,7 @@ public class GeneralBitsSelectionExpression : AbstractValue, IUntypedUnaryExpres
     }
 
     public override void EnumerateSubNodes(Action<AbstractValue> callback) {
-        callback(BaseExpression);
+        callback(UntypedValue);
     }
 }
 
@@ -120,9 +129,17 @@ public interface IRightValueConvertible {
     AbstractValue UntypedRValue { get; }
 }
 
-public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValue<TData>, TData>, IRightValueSelectionOps<TData> where TData: DataType,IDataType<TData> {
+public interface IRightValueConvertible<TData>: IRightValueConvertible where TData : DataType, IDataType<TData> {
+    RightValue<TData> RValue { get; }
+}
+public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValue<TData>, TData>, IRightValueSelectionOps<TData>, IRightValueConvertible<TData>,IReferenceTraceObject where TData: DataType,IDataType<TData> {
     public IAlg<TData> TypedAlgebra => (IAlg<TData>)Algebra;
     public TData TypedType => (TData)Type;
+
+    public RightValue<TData> RValue => this;
+
+    public AbstractValue UntypedRValue => this;
+
     public RightValue(TData type, IAlg? algebra = null) : base(type, algebra) {
     }
     protected static void CheckArithmeticCompatiblity(RightValue<TData> lhs, RightValue<TData> rhs) {
@@ -213,7 +230,7 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
         set => throw new NotImplementedException();
     }
     public RightValue<TData> this[Range range] {
-        get => new CastExpression<TData>((TData)Type.CreateWithWidth((uint)range.GetOffsetAndLength((int)Type.WidthBits).Length), GetBitSelection(range));
+        get => new CastExpression<TData>(TData.CreateWidth((uint)range.GetOffsetAndLength((int)Type.WidthBits).Length), GetBitSelection(range));
         set => throw new NotImplementedException();
     }
     public TEnum ToSwitch<TEnum>() where TEnum : unmanaged, Enum {
@@ -235,23 +252,25 @@ public abstract class LeftValue<TData> : RightValue<TData>, ILeftValueOps<TData>
     
 }
 
-public class CastExpression<TDest> : RightValue<TDest>, IUntypedUnaryExpression where TDest : DataType, IDataType<TDest> {
-    public AbstractValue SourceValue { get; }
+public interface IUntypedCastExpression: IUntypedUnaryExpression {
+    
+}
+public class CastExpression<TDest> : RightValue<TDest>, IUntypedCastExpression where TDest : DataType, IDataType<TDest> {
 
-    public AbstractValue UntypedValue => SourceValue;
+    public AbstractValue UntypedValue { get; }
 
     public CastExpression(TDest type, AbstractValue value) : base(type, type.DefaultAlgebra) {
-        SourceValue = value;
+        UntypedValue = value;
     }
 
     public override bool Equals(AbstractValue? other) {
         if(other is CastExpression<TDest> expression) {
-            return expression.SourceValue.Equals(SourceValue) && expression.Type.Equals(Type); 
+            return expression.UntypedValue.Equals(UntypedValue) && expression.Type.Equals(Type); 
         }
         return false;
     }
 
     public override void EnumerateSubNodes(Action<AbstractValue> callback) {
-        callback(SourceValue);
+        callback(UntypedValue);
     }
 }

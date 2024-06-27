@@ -10,6 +10,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace IntelliVerilog.Core.Analysis {
@@ -79,7 +80,9 @@ namespace IntelliVerilog.Core.Analysis {
             }
             return m_ModuleCache[componentType];
         }
-
+        public ComponentBuildingModel GetComponentBuildingModel() {
+            return (ComponentBuildingModel)(m_CurrentBuildModel.Peek().InternalModel);
+        }
         public void OnEnterConstruction(ComponentBase module) {
             m_CurrentBuildModel.Push(module);
         }
@@ -185,7 +188,7 @@ namespace IntelliVerilog.Core.Analysis {
             m_ComponentObject = componentObject;
             m_Parameters = instParameters;
 
-            ModelName = $"{componentType.Name}_{Utility.GetArraySignature(instParameters)}";
+            ModelName = $"{ReflectionHelpers.DenseTypeName(componentType)}_{Utility.GetArraySignature(instParameters)}";
         }
         public abstract IEnumerable<(AbstractValue assignValue, SpecifiedRange range)> QueryAssignedSubComponentIoValues(IUntypedConstructionPort declComponent, ComponentBase subModule);
     
@@ -259,32 +262,7 @@ namespace IntelliVerilog.Core.Analysis {
             return GetEnumerator();
         }
     }
-    public class BranchLatchCheckList: List<PrimaryAssignment> {
-        public void AddPrimaryAssignment(PrimaryAssignment assignment) {
-            foreach(var e in this) {
-                if(e.LeftValue == assignment.LeftValue && e.SelectedRange.IsIntersect(assignment.SelectedRange)) {
-                    throw new NotImplementedException("Assignment overlapped");
-                }
-            }
-            var prevCoalesce = Find(e => {
-                return e.LeftValue == assignment.LeftValue &&
-                    e.SelectedRange.Right == assignment.SelectedRange.Left;
-            });
-            var nextCoalesce = Find(e => {
-                return e.LeftValue == assignment.LeftValue &&
-                    e.SelectedRange.Left == assignment.SelectedRange.Right;
-            });
-            if(prevCoalesce != null) {
-                assignment.SelectedRange = new(prevCoalesce.SelectedRange.Left, assignment.SelectedRange.Right);
-            }
-            if(nextCoalesce != null) {
-                assignment.SelectedRange = new(assignment.SelectedRange.Left, nextCoalesce.SelectedRange.Right);
-            }
-            if (prevCoalesce != null) Remove(prevCoalesce);
-            if (nextCoalesce != null) Remove(nextCoalesce);
-            Add(assignment);
-        }
-    }
+    
     public abstract class RegisterDesc:IAssignableValue {
         protected RegisterValue? m_RightValueCache;
         public DataType UntypedType { get; }
@@ -406,6 +384,11 @@ namespace IntelliVerilog.Core.Analysis {
         public ref IReferenceTraceObject Pointer => ref m_Reference;
         public HeapPointer(IReferenceTraceObject objectRef) {
             m_Reference = objectRef;
+        }
+        public ref T AsRef<T>() where T : IReferenceTraceObject {
+            Debug.Assert(m_Reference is T);
+
+            return ref Unsafe.As<IReferenceTraceObject,T>(ref m_Reference);
         }
     }
     public interface IReferenceTraceObject {
@@ -620,23 +603,25 @@ namespace IntelliVerilog.Core.Analysis {
         public void RegisterIoPorts(IUntypedPort port) {
             InternalRegisterIoPorts(port);
         }
-        public HeapPointer RegisterWire(Wire wire) {
-            var pointerStorage = new HeapPointer(wire);
+        public HeapPointer RegisterHeapPointer(IReferenceTraceObject traceObject) {
+            var pointerStorage = new HeapPointer(traceObject);
 
-            ReferenceTraceObjects.Add(wire, pointerStorage);
-            m_WireLikeObjects.Add(wire, new WireTrivalAux(wire));
+            ReferenceTraceObjects.Add(traceObject, pointerStorage);
 
             return pointerStorage;
         }
-        public HeapPointer RegisterReg(Reg wire) {
-            var pointerStorage = new HeapPointer(wire);
+        public HeapPointer RegisterWire(Wire wire) {
+            
+            m_WireLikeObjects.Add(wire, new WireTrivalAux(wire));
 
-            ReferenceTraceObjects.Add(wire, pointerStorage);
+            return RegisterHeapPointer(wire);
+        }
+        public HeapPointer RegisterReg(Reg wire) {
             m_WireLikeObjects.Add(wire, new RegTrivalAux(wire));
 
             m_Registers.Add(wire);
 
-            return pointerStorage;
+            return RegisterHeapPointer(wire);
         }
         protected void InternalRegisterIoPorts(IUntypedPort port) {
             if(port is IoBundle bundle) {
@@ -858,7 +843,7 @@ namespace IntelliVerilog.Core.Analysis {
                             var specRange = new SpecifiedRange(range, bits);
 
                             if (!rightExpression.Type.IsWidthSpecified) {
-                                rightExpression.Type = wireSet.UntypedLeftValue.UntypedType;
+                                rightExpression.Type = rightExpression.Type.CreateWithWidth((uint)specRange.BitWidth);
                             }
                             if (specRange.BitWidth != rightExpression.Type.WidthBits) {
                                 throw new InvalidOperationException("Bit width mismatch");
@@ -892,12 +877,11 @@ namespace IntelliVerilog.Core.Analysis {
                                 var realLhs = (IUntypedConstructionPort)invertedOutput.InternalOut;
 
 
-                                if (!realLhs.UntypedType.IsWidthSpecified) {
-                                    realLhs.UntypedType = ioComponentLhs.UntypedRValue.Type;
-                                }
+                                var specRange = new SpecifiedRange(invertedOutput.SelectedRange, (int)realLhs.UntypedType.WidthBits);
 
-                                var bits = (int)realLhs.UntypedType.WidthBits;
-                                var specRange = new SpecifiedRange(invertedOutput.SelectedRange, bits);
+                                if (!realLhs.UntypedType.IsWidthSpecified) {
+                                    realLhs.UntypedType = realLhs.UntypedType.CreateWithWidth((uint)specRange.BitWidth);
+                                }
 
                                 if (specRange.BitWidth != ioComponentLhs.UntypedRValue.Type.WidthBits) {
                                     throw new InvalidOperationException("Bit width mismatch");
@@ -927,27 +911,28 @@ namespace IntelliVerilog.Core.Analysis {
                             Debug.Assert(rightExpression != null);
 
                             var lhsType = ((IDataTypeSpecifiedPort)ioComponentLhs).UntypedType;
- 
+                            
                             if (!rightExpression.Type.IsWidthSpecified && !lhsType.IsWidthSpecified) {
                                 throw new Exception("Unable to infer bit width");
                             }
                             if (!lhsType.IsWidthSpecified) {
                                 lhsType = ((IDataTypeSpecifiedPort)ioComponentLhs).UntypedType = rightExpression.Type;
                             }
-                            if (!rightExpression.Type.IsWidthSpecified) {
-                                rightExpression.Type = lhsType;
-                            }
 
-                            var bits = (int)lhsType.WidthBits;
-                            var specRange = new SpecifiedRange(range, bits);
-                            if (specRange.BitWidth != rightExpression.Type.WidthBits) {
+                            // Here we make sure lhs width has benn completely bounded
+                            var lhsRange = new SpecifiedRange(range, (int)lhsType.WidthBits);
+                            if (!rightExpression.Type.IsWidthSpecified) {
+                                rightExpression.Type = rightExpression.Type.CreateWithWidth((uint)lhsRange.BitWidth);
+                            }
+    
+                            if (lhsRange.BitWidth != rightExpression.Type.WidthBits) {
                                 throw new InvalidOperationException("Bit width mismatch");
                             }
 
                             if (Behavior.IsInBranchContext) {
-                                Behavior!.NotifyAssignment(returnAddress, (IAssignableValue)ioComponentLhs, rightExpression, specRange);
+                                Behavior!.NotifyAssignment(returnAddress, (IAssignableValue)ioComponentLhs, rightExpression, lhsRange);
                             } else {
-                                AssignOutputExpression(ioComponentLhs, rightExpression, specRange);
+                                AssignOutputExpression(ioComponentLhs, rightExpression, lhsRange);
                             }
 
                             break;
@@ -970,6 +955,7 @@ namespace IntelliVerilog.Core.Analysis {
             if (rightValue is IRegRightValueWrapper) return (AbstractValue)rightValue;
             if(rightValue is IWireRightValueWrapper) return (AbstractValue)rightValue;
             if (rightValue is IRightValueConvertible convertible) {
+                if (convertible.UntypedRValue == convertible) return convertible.UntypedRValue;
                 return ResolveRightValue(convertible.UntypedRValue);
             }
             throw new NotImplementedException();

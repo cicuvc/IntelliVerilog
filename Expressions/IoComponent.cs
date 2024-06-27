@@ -18,11 +18,11 @@ namespace IntelliVerilog.Core.Expressions {
         IoComponent,
         IRightValueOps<IoComponent<TData>, TData>,
         IRightValueSelectionOps<TData>,
-        ILeftValueOps<TData> 
+        ILeftValueOps<TData> , IRightValueConvertible<TData>
         where TData : DataType, IDataType<TData> {
 
         protected IoRightValueWrapper<TData>? m_RightValueCache = null!;
-        public virtual IoRightValueWrapper<TData> RValue {
+        public virtual RightValue<TData> RValue {
             get {
                 if (m_RightValueCache is null) {
                     if(this is IUntypedConstructionPort constructed) {

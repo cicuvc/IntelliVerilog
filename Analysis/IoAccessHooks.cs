@@ -56,12 +56,8 @@ namespace IntelliVerilog.Core.Analysis {
             var buildingModel = analysisContext.CurrentComponent.InternalModel as ComponentBuildingModel;
 
 
-
-            if (value is Wire wire) {
-                buildingModel.AssignEntityName(localName, wire);
-            }
-            if (value is Reg register) {
-                buildingModel.AssignEntityName(localName, register);
+            if(value is IOverlappedObject overlapped) {
+                buildingModel.AssignEntityName(localName, overlapped);
             }
 
             return ref value;
@@ -99,12 +95,36 @@ namespace IntelliVerilog.Core.Analysis {
         public static void NotifyReferenceWrite(ref object target, object value, Components.Module module) {
             var buildingModel = module.InternalModel as ComponentBuildingModel;
 
+
+            if (!(target is IReferenceTraceObject traceObject)) return;
+            if (!buildingModel.ReferenceTraceObjects.ContainsKey(traceObject)) return;
             if (target is IAssignableValue assignable) {
                 var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
                 var returnAddress = returnTracker.TrackReturnAddress(module, paramIndex: 3);
 
                 buildingModel.AssignSubModuleConnections(assignable, value, .., returnAddress);
             }
+            if(target is AbstractValue genericExpr) {
+                genericExpr = genericExpr.UnwrapCast();
+                if (genericExpr is IUntypedGeneralBitSelectionExpression bitSelection) {
+                    var untypedLhs = (object)bitSelection.UntypedValue.UnwrapCast();
+                    if (untypedLhs is IInvertedOutput iio) {
+                        untypedLhs = iio.InternalOut;
+                    }
+
+                    if (untypedLhs is IAssignableValue lhs) {
+                        var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
+                        var returnAddress = returnTracker.TrackReturnAddress(module, paramIndex: 3);
+
+                        buildingModel.AssignSubModuleConnections(lhs, value, bitSelection.SelectedRange.ToRange(), returnAddress);
+                        return;
+                    } 
+                    
+                    throw new InvalidOperationException("Assign to non-assignable ref trace object");
+                }
+            }
+           
+
         }
         public static void NotifyReferenceValueTypeWrite<TTuple>(ref TTuple target, TTuple value, Components.Module module) where TTuple : struct, ITuple {
             var buildingModel = module.InternalModel as ComponentBuildingModel;

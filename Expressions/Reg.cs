@@ -88,7 +88,7 @@ namespace IntelliVerilog.Core.Expressions {
     public class Reg<TData> : Reg,
         IRightValueOps<Reg<TData>, TData>,
         IRightValueSelectionOps<TData>,
-        ILeftValueOps<TData> where TData : DataType, IDataType<TData> {
+        ILeftValueOps<TData>, IRightValueConvertible<TData> where TData : DataType, IDataType<TData> {
         protected RegRightValueWrapper<TData>? m_RValueCache = null;
         public virtual RightValue<TData> RValue {
             get {

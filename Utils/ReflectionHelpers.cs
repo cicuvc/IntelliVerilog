@@ -8,6 +8,14 @@ using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.Utils {
     public static class ReflectionHelpers {
+        public static string DenseTypeName(Type type) {
+            var typeName = type.Name.Replace('`', '_');
+            if (type.IsConstructedGenericType) {
+                var genericPart = type.GetGenericArguments().Select(e => DenseTypeName(e)).Aggregate((u, v) => $"{u}_{v}");
+                typeName += $"${genericPart}$";
+            }
+            return typeName;
+        }
         public static string PrettyTypeName(Type type, bool withNamespace = true) {
             var typeName = withNamespace ? $"{type.Namespace}::{type.Name}" : type.Name;
             if (type.IsConstructedGenericType) {

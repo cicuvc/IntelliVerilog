@@ -29,7 +29,6 @@ namespace IntelliVerilog.Core.Expressions {
         static abstract IUntypedPort CreateUnspecified(IoBundle parent, ComponentBase root, IoMemberInfo member);
     }
     public abstract class Input<TData> : IoComponent<TData>, IUnspecifiedPortFactory where TData : DataType, IDataType<TData> {
-        public RightValue<TData> RValue => (RightValue<TData>)UntypedRValue;
         public override IoPortDirection Direction => IoPortDirection.Input;
 
         public static implicit operator Input<TData>(RightValue<TData> value) {

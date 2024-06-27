@@ -31,7 +31,9 @@ namespace IntelliVerilog.Core.DataTypes {
             if (other.GetType() == GetType()) return WidthBits == other.WidthBits;
             return false;
         }
-
+        public override int GetHashCode() {
+            return 19260817 | (int)WidthBits;
+        }
     }
     public class Bool : DataType, IDataType<Bool> {
         public Bool(bool isDecl = true) : base(1, isDecl) {

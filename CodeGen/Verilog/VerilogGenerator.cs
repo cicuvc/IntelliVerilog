@@ -646,13 +646,13 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 var lhs = ConvertExpressions(unaryExpression.UntypedValue, model, module);
 
                 var valueType = value.GetType();
-                if (valueType.IsConstructedGenericType && valueType.GetGenericTypeDefinition() == typeof(CastExpression<>)) {
+                if (valueType is IUntypedCastExpression) {
                     return lhs;
                 }
                 if (value is UIntNotExpression) return new VerilogNotOperator(lhs);
-                if (value is GeneralBitsSelectionExpression selectionExpression) {
-                    var baseExpression = ConvertExpressions(selectionExpression.BaseExpression, model, module);
-                    var selection = new VerilogRangeSelection(baseExpression, selectionExpression.SelectedRange, (int)selectionExpression.BaseExpression.Type.WidthBits);
+                if (value is IUntypedGeneralBitSelectionExpression selectionExpression) {
+                    var baseExpression = ConvertExpressions(selectionExpression.UntypedValue, model, module);
+                    var selection = new VerilogRangeSelection(baseExpression, selectionExpression.SelectedRange, (int)selectionExpression.UntypedValue.Type.WidthBits);
 
                     return selection;
                 }

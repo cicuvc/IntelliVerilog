@@ -8,6 +8,7 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -94,6 +95,43 @@ namespace IntelliVerilog.Core.Runtime.Core {
 
             m_InstOffset = template.Length; ;
 
+        }
+        public unsafe static (ILOpCode code, ulong operand) DecodeSingleOpCode(ReadOnlySpan<byte> code) {
+            var i = 0;
+            fixed (byte* array = code) {
+                var ilOpcode = (ILOpCode)array[i++];
+                if (((uint)ilOpcode) >= 249) {
+                    ilOpcode = (ILOpCode)((((uint)ilOpcode) << 8) + array[i++]);
+                }
+                var opcode = m_OpCodeMap[ilOpcode];
+                var operand = opcode.OperandType switch {
+                    OperandType.InlineNone => 0ul,
+                    OperandType.ShortInlineBrTarget or
+                    OperandType.ShortInlineI or
+                    OperandType.ShortInlineVar => (ulong)(sbyte)array[i++],
+
+
+                    OperandType.InlineVar => (ulong)*(short*)(&array[i]),
+
+                    OperandType.InlineField or
+                    OperandType.ShortInlineR or
+                    OperandType.InlineI or
+                    OperandType.InlineMethod or
+                    OperandType.InlineSig or
+                    OperandType.InlineString or
+                    OperandType.InlineTok or
+                    OperandType.InlineType or
+                    OperandType.InlineBrTarget => (ulong)*(int*)(&array[i]),
+
+                    OperandType.InlineI8 or
+                    OperandType.InlineR => (ulong)*(long*)(&array[i]),
+
+                    _ => throw new NotImplementedException()
+
+                };
+
+                return (ilOpcode, operand);
+            }
         }
         protected unsafe void ParseTemplate(ReadOnlySpan<byte> template) {
             var offsetMap = (Span<int>)stackalloc int[template.Length];
