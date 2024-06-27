@@ -12,6 +12,7 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Text;
@@ -50,30 +51,21 @@ namespace IntelliVerilog.Core.Analysis {
 
             return index >= 0;
         }
-        public unsafe int CompileMethod(object? context, MethodBase method, nint pthis, nint corinfo, JitCompileInfo* methodInfo, uint flags, nint* native, uint* size) {
-            var frame = new StackFrame(3);
-            var callerMethod = frame.GetMethod()!;
-            var callerModule = callerMethod.Module;
+        protected void FindMethodCallerInstruction(MethodBase callerMethod,MethodBase method) {
             var callerBody = callerMethod.GetMethodBody()!;
-            var callOpSlice = callerBody.GetILAsByteArray().AsSpan().Slice(frame.GetILOffset());
-            var (callOp, callOperand) = ILEditor.DecodeSingleOpCode(callOpSlice);
+            var callerModule = callerMethod.Module;
+            var ilEditor = new ILEditor(callerBody.GetILAsByteArray());
 
-            var calleeValidation = callerModule.ResolveMethod((int)callOperand);
-            if(calleeValidation.MetadataToken != method.MetadataToken) {
-                throw new Exception("Call instruction of method caller cannot be located");
+            foreach(var (code, operand) in ilEditor) {
+                if(code == ILOpCode.Newobj) {
+                    var calleeValidation = callerModule.ResolveMethod((int)operand);
+                    if(calleeValidation.MetadataToken == method.MetadataToken) {
+
+                    }
+                }
             }
-
-            var sigService = IntelliVerilogLocator.GetService<MetadataSignatureService>()!;
-            var callOperandToken = sigService.CreateEntityHandle((uint)callOperand);
-            var callerReader = sigService.GetReader(callerModule.Assembly);
-
-            if(callOperandToken.Kind == HandleKind.MemberReference) {
-                var memberRef = callerReader.Reader.GetMemberReference((MemberReferenceHandle)callOperandToken);
-                var typeSpec = callerReader.Reader.GetTypeSpecification((TypeSpecificationHandle)memberRef.Parent);
-                var sig = callerReader.Reader.GetBlobBytes(typeSpec.Signature);
-            }
-            
-
+        }
+        public unsafe int CompileMethod(object? context, MethodBase method, nint pthis, nint corinfo, JitCompileInfo* methodInfo, uint flags, nint* native, uint* size) {
             IvLogger.Default.Verbose("ModuleCompiler", $"Transform module-like class {method.DeclaringType.FullName}");
             
             var argumentList = method.GetParameters();
@@ -161,7 +153,7 @@ namespace IntelliVerilog.Core.Analysis {
                 }
             }
 
-            var typeGenerics = calleeValidation.DeclaringType.IsConstructedGenericType ? calleeValidation.DeclaringType.GetGenericArguments() : null;
+            var typeGenerics = method.DeclaringType.IsConstructedGenericType ? method.DeclaringType.GetGenericArguments() : null;
 
             foreach (var i in editor) {
                 var info = ILEditor.GetOpCodeInfo(i.code);
@@ -194,15 +186,14 @@ namespace IntelliVerilog.Core.Analysis {
                 }
             }
 
- 
 
-            var tupleSetHook = typeof(IoAccessHooks).GetMethod("NotifyIoTupleSet", BindingFlags.Static | BindingFlags.Public);
+
+            var tupleSetHook = IoAccessHooks.NotifyIoTupleSet;
             for (var i = 0; i < editor.Count; i++) {
                 var (opcode, operand) = editor[i];
                 if(opcode == ILOpCode.Stfld) {
                     var fieldRef = mainModule.ResolveField((int)operand, typeGenerics,null)!;
                     if (fieldRef.DeclaringType != null && ioPortTypes.Contains(fieldRef.DeclaringType)) {
-                        var tupleSetHookSpecified = tupleSetHook.MakeGenericMethod(fieldRef.DeclaringType);
 
                         editor[i] = (ILOpCode.Br, editor.Count);
 
@@ -210,13 +201,14 @@ namespace IntelliVerilog.Core.Analysis {
                         editor.Emit(ILOpCode.Ldc_i8, fieldRef.FieldHandle.Value);
                         editor.Emit(ILOpCode.Ldc_i8, fieldRef.DeclaringType.TypeHandle.Value);
 
-                        editor.Emit(ILOpCode.Call, proxy.AllocateToken(tupleSetHookSpecified));
+                        editor.Emit(ILOpCode.Call, proxy.AllocateToken(tupleSetHook.Method));
+
                         editor.Emit(ILOpCode.Br, i + 1);
                     }
                 }
             }
 
-            var notifyReferenceValueTypeWrite = typeof(IoAccessHooks).GetMethod(nameof(IoAccessHooks.NotifyReferenceValueTypeWrite));
+            var notifyReferenceValueTypeWrite = IoAccessHooks.NotifyReferenceValueTypeWrite;
             codeBaseLength = editor.Count;
             for (var i = 0; i < codeBaseLength; i++) {
                 var (opcode, operand) = editor[i];
@@ -225,12 +217,12 @@ namespace IntelliVerilog.Core.Analysis {
                     var referenceType = mainModule.ResolveType((int)operand, typeGenerics, null);
 
                     if (referenceType != null && ioPortTypes.Contains(referenceType)) {
-                        var hookFunction = notifyReferenceValueTypeWrite.MakeGenericMethod(referenceType);
 
                         editor[i] = (ILOpCode.Br, editor.Count);
 
+                        editor.Emit(ILOpCode.Box, proxy.AllocateToken(referenceType));
                         editor.Emit(ILOpCode.Ldarg_0);
-                        editor.Emit(ILOpCode.Call, proxy.AllocateToken(hookFunction));
+                        editor.Emit(ILOpCode.Call, proxy.AllocateToken(notifyReferenceValueTypeWrite.Method));
 
                         editor.Emit(ILOpCode.Br, i + 1);
                     }

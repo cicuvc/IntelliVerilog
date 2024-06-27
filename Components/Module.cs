@@ -25,8 +25,8 @@ namespace IntelliVerilog.Core.Components {
         public ref TIoPorts IO => ref Unsafe.Unbox<TIoPorts>(m_BoxedIoPorts!);
 
         public object? BoxedIoPorts => m_BoxedIoPorts;
-        public override bool IsModuleIo<TIoPortsAlt>(ref TIoPortsAlt portReference) {
-            return Unsafe.AreSame(ref Unsafe.As<TIoPortsAlt, TIoPorts>(ref portReference), ref IO);
+        public override bool IsModuleIo(ref byte portReference) {
+            return Unsafe.AreSame(ref Unsafe.As<byte, TIoPorts>(ref portReference), ref IO);
         }
         protected ref TIoPorts UseDefaultIo(TIoPorts value) {
             if (m_InternalModel is ComponentBuildingModel building) {
@@ -77,7 +77,7 @@ namespace IntelliVerilog.Core.Components {
             }
             return false;
         }
-        public override bool IsModuleIo<TIoPorts>(ref TIoPorts portReference) {
+        public override bool IsModuleIo(ref byte portReference) {
             return false;
         }
         public bool QueryComponentCache(object[] parameters) {

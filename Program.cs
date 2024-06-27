@@ -429,47 +429,47 @@ public class IvDefaultCodeGenerator {
 public class MetadataSigDecoder : ISignatureTypeProvider<Type, Type[]> {
     public static MetadataSigDecoder Decoder { get; } = new();
     public Type GetArrayType(Type elementType, ArrayShape shape) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
     public Type GetByReferenceType(Type elementType) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
     public Type GetFunctionPointerType(MethodSignature<Type> signature) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
     public Type GetGenericInstantiation(Type genericType, System.Collections.Immutable.ImmutableArray<Type> typeArguments) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
     public Type GetGenericMethodParameter(Type[] genericContext, int index) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
     public Type GetGenericTypeParameter(Type[] genericContext, int index) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
     public Type GetModifiedType(Type modifier, Type unmodifiedType, bool isRequired) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
     public Type GetPinnedType(Type elementType) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
     public Type GetPointerType(Type elementType) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
     public Type GetPrimitiveType(PrimitiveTypeCode typeCode) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
     public Type GetSZArrayType(Type elementType) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
 
@@ -481,15 +481,15 @@ public class MetadataSigDecoder : ISignatureTypeProvider<Type, Type[]> {
         if(type == null) {
 
         }
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
     public Type GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 
     public Type GetTypeFromSpecification(MetadataReader reader, Type[] genericContext, TypeSpecificationHandle handle, byte rawTypeKind) {
-        throw new NotImplementedException();
+        Debugger.Break(); return typeof(object);
     }
 }
 public class MetadataSignaureContext {
@@ -571,7 +571,9 @@ public unsafe static class App {
 
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new TestMem<UInt>(5u.Bits());
+            var adder = new TupleWholeAssignTest(5u);
+
+            //var add2er = new TestMem<TestBF>(new TestBF());
 
             var codeGen = new VerilogGenerator();
             var generatedModel = new Dictionary<ComponentModel, Components.Module>();
@@ -579,6 +581,8 @@ public unsafe static class App {
 
             generationQueue.Enqueue(adder);
             generatedModel.Add(adder.InternalModel, adder);
+            //generationQueue.Enqueue(add2er);
+            //generatedModel.Add(add2er.InternalModel, adder);
 
 
             while (generationQueue.Count != 0) {

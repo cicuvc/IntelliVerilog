@@ -14,7 +14,7 @@ namespace IntelliVerilog.Core.Components {
 
         public IOverlappedObjectDesc Descriptor { get; set; }
 
-        public abstract bool IsModuleIo<TIoPorts>(ref TIoPorts portReference) where TIoPorts: struct, ITuple;
+        public abstract bool IsModuleIo(ref byte portReference);
         public abstract bool IsModuleIo(object portReference);
 
         protected void InitComponentBase() {
