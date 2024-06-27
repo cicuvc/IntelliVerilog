@@ -16,4 +16,8 @@
     <PackageReference Include="TqdmSharp" Version="1.3.3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Project\" />
+  </ItemGroup>
+
 </Project>

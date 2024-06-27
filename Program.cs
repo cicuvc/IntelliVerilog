@@ -571,7 +571,7 @@ public unsafe static class App {
 
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new TupleWholeAssignTest(5u);
+            var adder = new RippleClock();
 
             //var add2er = new TestMem<TestBF>(new TestBF());
 

@@ -26,16 +26,18 @@ namespace IntelliVerilog.Core.Examples {
         Input<Bool> en,
         Output<UInt> outValue
         )> {
-        public DFF(uint width) {
+        public DFF(uint width, ClockDomain? clockDom = null) {
             ref var io = ref UseDefaultIo(new() { 
                 inValue = width.Bits(),
                 outValue = width.Bits()
             });
 
-            ref var register = ref Reg.New(width.Bits());
-           
-            register = io.inValue.RValue;
+            ref var register = ref Reg.New(width.Bits(), clockDom);
 
+            if (io.en.RValue) {
+                register = io.inValue.RValue;
+            }
+            
             io.outValue = register.RValue;
         }
     }

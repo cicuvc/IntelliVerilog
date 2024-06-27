@@ -23,7 +23,7 @@ namespace IntelliVerilog.Core.Expressions {
 
         public override bool Equals(AbstractValue? other) {
             if(other is WireRightValueWrapper<TData> expression) {
-                return expression.WireDef == WireDef;
+                return ReferenceEquals(expression.WireDef,WireDef);
             }
             return false;
         }
@@ -31,7 +31,7 @@ namespace IntelliVerilog.Core.Expressions {
     public abstract class Wire : IAssignableValue,IReferenceTraceObject,IWireLike, IOverlappedObject,IRightValueConvertible {
         public DataType UntypedType { get; }
 
-        public Func<string> Name { get; set; } = () => "<unnamed wire>";
+        public Func<string> Name { get; set; }
 
         public IOverlappedObjectDesc Descriptor { get; set; }
 
@@ -42,6 +42,8 @@ namespace IntelliVerilog.Core.Expressions {
 
             UntypedType = type;
             Descriptor = new WireOverlappedDesc(defaultName, type) { this };
+
+            Name = () => $"{Descriptor.InstanceName}_{((List<Wire>)Descriptor).IndexOf(this)}";
         }
         public static ref Wire<TData> New<TData>(TData type) where TData : DataType, IDataType<TData> {
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
@@ -79,6 +81,8 @@ namespace IntelliVerilog.Core.Expressions {
         }
         public override AbstractValue UntypedRValue => RValue;
         public Wire(TData type) : base(type) {
+            var componentModel = IntelliVerilogLocator.GetService<AnalysisContext>().GetComponentBuildingModel()!;
+            componentModel.AddEntity(this);
         }
         
         public static implicit operator Wire<TData>(RightValue<TData> value) {

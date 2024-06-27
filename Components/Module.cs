@@ -85,6 +85,8 @@ namespace IntelliVerilog.Core.Components {
 
             var cache = context.GetModuleModelCache(GetType());
 
+            parameters = parameters.Append(ScopedLocator.GetService<ClockDomain>()!).ToArray();
+
             m_InternalModel = cache.QueryModelCache(parameters,this, out var found);
             InitializeBundle(this, this, null!);
 

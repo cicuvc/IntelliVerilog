@@ -190,7 +190,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
             context.AppendLine("(");
 
             using (context.BeginIndent()) {
-                var lastPort = IoPorts.Last();
+                var lastPort = IoPorts.LastOrDefault();
                 foreach (var i in IoPorts) {
                     i.GenerateCode(context);
                     if (i != lastPort) {
@@ -645,8 +645,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
             if(value is IUntypedUnaryExpression unaryExpression) {
                 var lhs = ConvertExpressions(unaryExpression.UntypedValue, model, module);
 
-                var valueType = value.GetType();
-                if (valueType is IUntypedCastExpression) {
+                if (value is IUntypedCastExpression) {
                     return lhs;
                 }
                 if (value is UIntNotExpression) return new VerilogNotOperator(lhs);
@@ -883,8 +882,23 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                                             }
                                         }
                                         return false;
-                                    });
-                                    modelInst.PortConnections.Add((portName, connectedPort.Identifier));
+                                    })?.Identifier;
+                                    if (connectedPort == null) {
+                                        connectedPort = moduleAst.ExplicitWires.Where(e => { 
+                                            if(e.Key is ClockDomainWire clkWire) {
+                                                return clkWire.ClockDom == clockDomInput.ClockDom &&
+                                                    clkWire.SignalType == clockDomInput.SignalType;
+                                            }
+                                            return false;
+                                        } ).Select(e=>e.Value.Identifier).First();
+                                    }
+
+                                    if (connectedPort == null) {
+                                        throw new Exception($"Missing clock signal {clockDomInput.SignalType} for clock domain {clockDomInput.ClockDom.Name}");
+                                    } 
+                                    modelInst.PortConnections.Add((portName, connectedPort));
+
+                                    
                                 } else {
                                     var assignments = componentModel.QueryAssignedSubComponentIoValues(portInfo, subModule);
                                     if (assignments.Count() == 0) continue;
@@ -933,7 +947,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     ClockPositiveEdge = i.ClockRiseEdge,
                     ResetPositiveEdge = i.ResetHighActive
                 };
-                if(!(i.Reset is null)) {
+                if(!(i.RawReset is null)) {
                     var reset = moduleAst.IoPorts.Find(e => (e.DeclIoComponent is ClockDomainInput { SignalType: ClockDomainSignal.Reset } domainInput) && domainInput.ClockDom == i);
                     alwaysFF.ResetSignal = reset.Identifier;
                 }

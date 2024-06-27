@@ -19,7 +19,12 @@ namespace IntelliVerilog.Core.Utils {
             var sb = new StringBuilder();
             sb.Append($"{array.Length:X}");
             foreach(var i in array) {
-                sb.Append($"_{i.GetHashCode():X02}");
+                if(i is null) {
+                    sb.Append("_NIL");
+                } else {
+                    sb.Append($"_{i.GetHashCode():X02}");
+                }
+                
             }
             return sb.ToString();
         }

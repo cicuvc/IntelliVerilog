@@ -26,8 +26,8 @@ namespace IntelliVerilog.Core.Runtime.Core {
             { ILOpCode.Blt_s, ILOpCode.Blt },
             { ILOpCode.Blt_un_s, ILOpCode.Blt_un },
             { ILOpCode.Bgt_s, ILOpCode.Bgt },
-            
-           
+            { ILOpCode.Leave_s, ILOpCode.Leave },
+
             { ILOpCode.Br_s, ILOpCode.Br },
             { ILOpCode.Brtrue_s, ILOpCode.Brtrue },
             { ILOpCode.Brfalse_s, ILOpCode.Brfalse },

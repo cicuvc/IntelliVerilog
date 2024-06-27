@@ -176,15 +176,31 @@ namespace IntelliVerilog.Core.Expressions {
         SyncReset = 2,
         ClockEnable = 3
     }
-    public class ClockDomainInput : TypeSpecifiedInput<Bool>, IUntypedConstructionPort {
+    public interface IClockPart { }
+    public class ClockDomainWire : Wire<Bool>, IClockPart {
         private static string[] m_SignalNames = new string[4] {
             "clk", "rst", "sync_rst", "clken"
         };
         public ClockDomain ClockDom { get; }
         public ClockDomainSignal SignalType { get; }
-        public ClockDomainInput(ClockDomain clockDom, ClockDomainSignal sigType) : base(Bool.CreateDefault()) {
+        public ClockDomainWire(ClockDomain clockDom, ClockDomainSignal sigType) : base(Bool.CreateDefault()) {
             ClockDom = clockDom;
             SignalType = sigType;
+
+            var componentModel = IntelliVerilogLocator.GetService<AnalysisContext>().GetComponentBuildingModel()!;
+            componentModel.AssignEntityName($"gen_{clockDom.Name}_{m_SignalNames[(int)sigType]}",this);
+        }
+    }
+    public class ClockDomainInput : TypeSpecifiedInput<Bool>, IUntypedConstructionPort, IClockPart {
+        private static string[] m_SignalNames = new string[4] {
+            "clk", "rst", "sync_rst", "clken"
+        };
+        public ClockDomain ClockDom { get; }
+        public ClockDomainSignal SignalType { get; }
+        public ClockDomainInput(ClockDomain clockDom, ClockDomainSignal sigType,ComponentBase component) : base(Bool.CreateDefault()) {
+            ClockDom = clockDom;
+            SignalType = sigType;
+            Component = component;
             var name = $"{clockDom.Name}_{m_SignalNames[(int)sigType]}";
             Name = () => name;
         }
@@ -199,7 +215,7 @@ namespace IntelliVerilog.Core.Expressions {
 
         public IoBundle Parent => throw new NotImplementedException();
 
-        public ComponentBase Component => throw new NotImplementedException();
+        public ComponentBase Component { get; }
 
         public IoPortPath Location => throw new NotImplementedException();
 

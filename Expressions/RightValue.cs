@@ -47,6 +47,10 @@ public abstract class AbstractValue :IEquatable<AbstractValue>, IRecursiveExpres
         }
         return castSource;
     }
+    public RightValue<TData> Cast<TData>(TData? type = null) where TData : DataType, IDataType<TData> {
+        type ??= TData.CreateDefault();
+        return new CastExpression<TData>(type, this);
+    }
     public abstract void EnumerateSubNodes(Action<AbstractValue> callback);
 
     private void PropagateDataType(AbstractValue subNode) {

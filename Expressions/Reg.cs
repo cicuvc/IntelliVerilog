@@ -24,7 +24,7 @@ namespace IntelliVerilog.Core.Expressions {
 
         public override bool Equals(AbstractValue? other) {
             if (other is RegRightValueWrapper<TData> expression) {
-                return expression.RegDef == RegDef;
+                return ReferenceEquals(expression.RegDef, RegDef);
             }
             return false;
         }
@@ -85,6 +85,10 @@ namespace IntelliVerilog.Core.Expressions {
         public AbstractValue UntypedExpression => Expression;
         public override RightValue<TData> RValue => Expression;
     }
+    public class InvalidClockDomain :ClockDomain{
+        public static InvalidClockDomain Instance { get; } = new();
+        public InvalidClockDomain() :base("invalid", new DummyClockReset()){ }
+    }
     public class Reg<TData> : Reg,
         IRightValueOps<Reg<TData>, TData>,
         IRightValueSelectionOps<TData>,
@@ -101,7 +105,7 @@ namespace IntelliVerilog.Core.Expressions {
         }
 
         public static implicit operator Reg<TData>(RightValue<TData> value) {
-            return new ExpressedReg<TData>(value,null);
+            return new ExpressedReg<TData>(value, InvalidClockDomain.Instance);
         }
         public RightValue<Bool> this[uint index] {
             get => RValue[index];
