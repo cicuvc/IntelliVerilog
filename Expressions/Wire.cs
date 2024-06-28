@@ -47,7 +47,7 @@ namespace IntelliVerilog.Core.Expressions {
         }
         public static ref Wire<TData> New<TData>(TData type) where TData : DataType, IDataType<TData> {
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
-            var componentModel = context.CurrentComponent!.InternalModel as ComponentBuildingModel;
+            var componentModel = context.GetComponentBuildingModel(throwOnNull: true)!;
 
             var wire = new Wire<TData>(type);
 
@@ -81,7 +81,7 @@ namespace IntelliVerilog.Core.Expressions {
         }
         public override AbstractValue UntypedRValue => RValue;
         public Wire(TData type) : base(type) {
-            var componentModel = IntelliVerilogLocator.GetService<AnalysisContext>().GetComponentBuildingModel()!;
+            var componentModel = IntelliVerilogLocator.GetService<AnalysisContext>()!.GetComponentBuildingModel(throwOnNull: true)!;
             componentModel.AddEntity(this);
         }
         
@@ -182,5 +182,12 @@ namespace IntelliVerilog.Core.Expressions {
         public static RightValue<TData> operator ~(Wire<TData> lhs) {
             return ~lhs.RValue;
         }
+        public override bool Equals(object? obj) {
+            return ReferenceEquals(this, obj);
+        }
+        public override int GetHashCode() {
+            return base.GetHashCode();
+        }
+
     }
 }

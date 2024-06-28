@@ -51,7 +51,7 @@ namespace IntelliVerilog.Core.Components {
         public IoMemberTupleFieldInfo(FieldInfo[] member, string name) : base(name) {
             m_MemberChain = member;
             var valueType = member.Last().FieldType;
-            var unboxType = member[0].DeclaringType;
+            var unboxType = member[0].DeclaringType!;
 
             m_WriteValue = new DynamicMethod($"{Utility.GetRandomStringHex(16)}_set", null, new Type[] {
                 typeof(object), valueType
@@ -86,12 +86,12 @@ namespace IntelliVerilog.Core.Components {
         }
         public override IUntypedPort? GetValue(object instance) {
             var module = (ITupledModule)instance;
-            return (IUntypedPort?)m_ReadValue.Invoke(null, new object[] { module.BoxedIoPorts });
+            return (IUntypedPort?)m_ReadValue.Invoke(null, new object[] { module.BoxedIoPorts ?? throw new NullReferenceException("IO port container is null")});
         }
 
         public override void SetValue(object instance, IUntypedPort? value) {
             var module = (ITupledModule)instance;
-            m_WriteValue.Invoke(null, new object[] { module.BoxedIoPorts, value});
+            m_WriteValue.Invoke(null, new object[] { module.BoxedIoPorts ?? throw new NullReferenceException("IO port container is null"), value! });
         }
     }
     public class BundleIoProbeAux : IIoComponentProbeAuxiliary {
@@ -177,14 +177,14 @@ namespace IntelliVerilog.Core.Components {
                         var currentType = tupleType;
                         for(var i=0;i < totalElements; i++) {
                             if(i % 7 == 0 && i>0) {
-                                var rest = currentType.GetField("Rest");
+                                var rest = currentType.GetField("Rest")!;
                                 residueFieldInfo.Add(rest);
                                 currentType = rest.FieldType;
                             }
 
-                            var field = currentType.GetField($"Item{(i % 7) + 1}");
+                            var field = currentType.GetField($"Item{(i % 7) + 1}")!;
                             if (field.GetCustomAttribute<IoIgnoreAttribute>() != null) continue;
-                            var ioMember = new IoMemberTupleFieldInfo(residueFieldInfo.Append(field).ToArray(), tupleNames.TransformNames[i]);
+                            var ioMember = new IoMemberTupleFieldInfo(residueFieldInfo.Append(field).ToArray(), tupleNames.TransformNames[i] ?? throw new NullReferenceException("[WARNING] Got null name hint"));
                             tupleMembers.Add(ioMember);
                         }
 
@@ -208,7 +208,7 @@ namespace IntelliVerilog.Core.Components {
     }
     public class IoComponentProbableHelpers {
         private static Dictionary<Type, IIoComponentProbeAuxiliary> m_ProbeAuxCache = new();
-        public static IIoComponentProbeAuxiliary? QueryProbeAuxiliary(Type ioComponentType) {
+        public static IIoComponentProbeAuxiliary QueryProbeAuxiliary(Type ioComponentType) {
             var lookupType = ioComponentType;
             while (lookupType != null) {
                 if (m_ProbeAuxCache.ContainsKey(lookupType)) return m_ProbeAuxCache[lookupType];
@@ -227,7 +227,7 @@ namespace IntelliVerilog.Core.Components {
                 lookupType = lookupType.BaseType;
             }
 
-            return null;
+            throw new NotImplementedException($"Unable to find suitable probe auxiliary for {ReflectionHelpers.PrettyTypeName(ioComponentType)}");
         }
     }
     public class IoComponentProbableAttribute<TComponentAux> : Attribute where TComponentAux: IIoComponentProbeAuxiliary,new() {

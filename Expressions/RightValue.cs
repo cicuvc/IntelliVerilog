@@ -181,7 +181,7 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
     }
     public static implicit operator bool(RightValue<TData> lhs) {
         var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
-        var model = context.CurrentComponent.InternalModel as ComponentBuildingModel;
+        var model = context.GetComponentBuildingModel(throwOnNull: true)!;
         var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
         var returnAddress = returnTracker.TrackReturnAddress(lhs, paramIndex: 2);
 
@@ -239,11 +239,17 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
     }
     public TEnum ToSwitch<TEnum>() where TEnum : unmanaged, Enum {
         var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
-        var model = context.CurrentComponent.InternalModel as ComponentBuildingModel;
+        var model = context.GetComponentBuildingModel(throwOnNull: true)!;
         var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
         var returnAddress = returnTracker.TrackReturnAddress(this, paramIndex: 2);
 
         return model.Behavior.NotifySwitchEnter<TEnum>(returnAddress, this);
+    }
+    public override int GetHashCode() {
+        return base.GetHashCode();
+    }
+    public override bool Equals(object? obj) {
+        return ReferenceEquals(this, obj);
     }
 }
 

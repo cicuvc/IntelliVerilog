@@ -110,6 +110,13 @@ namespace IntelliVerilog.Core.Expressions {
         public abstract RightValue<TData> this[Range range] {
             get;set;
         }
+        public override bool Equals(object? obj) {
+            return ReferenceEquals(this, obj);
+        }
+        public override int GetHashCode() {
+            return base.GetHashCode();
+        }
+
     }
 
 }

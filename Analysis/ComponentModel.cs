@@ -80,8 +80,10 @@ namespace IntelliVerilog.Core.Analysis {
             }
             return m_ModuleCache[componentType];
         }
-        public ComponentBuildingModel? GetComponentBuildingModel() {
-            return (ComponentBuildingModel?)(m_CurrentBuildModel.Count > 0 ? m_CurrentBuildModel.Peek().InternalModel : null);
+        public ComponentBuildingModel? GetComponentBuildingModel(bool throwOnNull = false) {
+            var model = (ComponentBuildingModel?)(m_CurrentBuildModel.Count > 0 ? m_CurrentBuildModel.Peek().InternalModel : null);
+            if(throwOnNull && model is null) throw new NullReferenceException("Component building model not available");
+            return model;
         }
         public void OnEnterConstruction(ComponentBase module) {
             m_CurrentBuildModel.Push(module);
@@ -132,15 +134,15 @@ namespace IntelliVerilog.Core.Analysis {
             Member = member;
             PortDef = portDef;
         }
-        public IoComponent TraceValue(IUntypedPort root) {
+        public IoComponent? TraceValue(IUntypedPort root) {
             foreach(var i in Path) {
-                root = i.GetValue(root);
+                root = i.GetValue(root) ?? throw new Exception("Trace got null reference"); ;
             }
-            return (IoComponent)Member.GetValue(root);
+            return (IoComponent?)Member.GetValue(root);
         }
         public void TraceSetValue(IUntypedPort root, IUntypedPort value) {
             foreach (var i in Path) {
-                root = i.GetValue(root);
+                root = i.GetValue(root) ?? throw new Exception("Trace got null reference");
             }
             Member.SetValue(root,value);
         }
@@ -174,8 +176,15 @@ namespace IntelliVerilog.Core.Analysis {
         protected Type m_ComponentType;
         protected ComponentBase m_ComponentObject;
         protected HashSet<ComponentBase> m_SubComponents = new();
+        protected BehaviorContext? m_BehaviorContext;
         public string ModelName { get; }
-        public BehaviorContext? Behavior { get; set; } 
+        public BehaviorContext Behavior {
+            get => m_BehaviorContext ?? throw new InvalidOperationException("Attempt to get uninitialized behavior record context");
+            set {
+                Debug.Assert(m_BehaviorContext is null);
+                m_BehaviorContext = value;
+            }
+        }  
         public abstract IEnumerable<ClockDomain> UsedClockDomains { get; }
         public abstract IDictionary<IWireLike, WireTrivalAux> WireLikeObjects { get; }
         public abstract IReadOnlyDictionary<IAssignableValue, AssignmentInfo> GenericAssignments { get; }
@@ -188,7 +197,7 @@ namespace IntelliVerilog.Core.Analysis {
             m_ComponentObject = componentObject;
             m_Parameters = instParameters;
 
-            ModelName = $"{ReflectionHelpers.DenseTypeName(componentType)}_{Utility.GetArraySignature(instParameters)}${ScopedLocator.GetService<ClockDomain>().Name}";
+            ModelName = $"{ReflectionHelpers.DenseTypeName(componentType)}_{Utility.GetArraySignature(instParameters)}${ScopedLocator.GetService<ClockDomain>()?.Name ?? "<no domain!!>"}";
         }
         public abstract IEnumerable<(AbstractValue assignValue, SpecifiedRange range)> QueryAssignedSubComponentIoValues(IUntypedConstructionPort declComponent, ComponentBase subModule);
     
@@ -326,12 +335,6 @@ namespace IntelliVerilog.Core.Analysis {
         AssignmentInfo CreateAssignmentInfo();
     }
 
-    public class AssignableLeftValueInfo {
-        public IAssignableValue LeftValue { get; }
-        public AssignableLeftValueInfo() {
-
-        }
-    }
     public interface IBasicAssignmentTerm {
         IAssignableValue UntypedLeftValue { get; }
         AbstractValue RightValue { get; set; }
@@ -496,7 +499,7 @@ namespace IntelliVerilog.Core.Analysis {
 
         public void ModelCheck() {
             var rootSet = new List<BehaviorDesc>();
-            
+
             Behavior.Root.EnumerateDesc((e,branchPath) => {
                 if (e is PrimaryAssignment primaryAssign) {
                     if (!m_GenericAssignments.ContainsKey(primaryAssign.UntypedLeftValue)) {
@@ -633,6 +636,7 @@ namespace IntelliVerilog.Core.Analysis {
                 foreach(var i in ioAux.GetIoMembers(bundleType)) {
                     var subPort = i.GetValue(port);
 
+                    if (subPort == null) throw new Exception($"Internal port {port.Name()} not initialized");
                     InternalRegisterIoPorts(subPort);
                 }
 
@@ -665,7 +669,7 @@ namespace IntelliVerilog.Core.Analysis {
 
                         foreach (var i in internalPortAux.Precursors) {
                             if (i.Wire is IUntypedConstructionPort { Direction: IoPortDirection.Input } internalInput) {
-                                var external = internalInput.Location.TraceValue(component);
+                                var external = internalInput.Location.TraceValue(component) ?? throw new NullReferenceException($"Missing external port instance for port {internalInput.Name()}");
 
                                 if (!m_WireLikeObjects.ContainsKey(external)) {
                                     m_WireLikeObjects.Add(external, new ExternalPortTrivalAux((IUntypedConstructionPort)external));
@@ -710,7 +714,7 @@ namespace IntelliVerilog.Core.Analysis {
             var desc = m_SubComponentObjects[name];
 
             var namedType = typeof(NamedStageExpression<>).MakeGenericType(dataType);
-            var stagedValue = (INamedStageExpression)namedType.GetConstructor(new Type[] {typeof(AbstractValue),typeof(SubValueStageDesc) })
+            var stagedValue = (INamedStageExpression)namedType.GetConstructor(new Type[] {typeof(AbstractValue),typeof(SubValueStageDesc) })!
                 .Invoke(new object[] { rightValue, desc });
 
             ((IList)desc).Add(stagedValue);
@@ -777,19 +781,19 @@ namespace IntelliVerilog.Core.Analysis {
                         var fakeClock = new ClockDomainWire(clkDomain, ClockDomainSignal.Reset);
                         RegisterWire(fakeClock);
 
-                        AssignSubModuleConnections(fakeClock, clkDomain.Reset, .., nint.Zero);
+                        AssignSubModuleConnections(fakeClock, clkDomain.RawReset, .., nint.Zero);
                     }
                     if (!(clkDomain.RawSyncReset is null)) {
                         var fakeClock = new ClockDomainWire(clkDomain, ClockDomainSignal.SyncReset);
                         RegisterWire(fakeClock);
 
-                        AssignSubModuleConnections(fakeClock, clkDomain.SyncReset, .., nint.Zero);
+                        AssignSubModuleConnections(fakeClock, clkDomain.RawSyncReset, .., nint.Zero);
                     }
                     if (!(clkDomain.RawClockEnable is null)) {
                         var fakeClock = new ClockDomainWire(clkDomain, ClockDomainSignal.ClockEnable);
                         RegisterWire(fakeClock);
 
-                        AssignSubModuleConnections(fakeClock, clkDomain.ClockEnable, .., nint.Zero);
+                        AssignSubModuleConnections(fakeClock, clkDomain.RawClockEnable, .., nint.Zero);
                     }
                 }
             }
@@ -832,7 +836,7 @@ namespace IntelliVerilog.Core.Analysis {
                     var newSlotValue = i.GetValue(rightValue);
                     if (newSlotValue == null) continue;
 
-                    var oldSlotValue = (IAssignableValue)i.GetValue(leftValue);
+                    var oldSlotValue = (IAssignableValue)(i.GetValue(leftValue) ?? throw new Exception("Attempt to connect to uninitialized port-like entity"));
 
                     AssignSubModuleConnections(oldSlotValue, newSlotValue, range, returnAddress);
                 }

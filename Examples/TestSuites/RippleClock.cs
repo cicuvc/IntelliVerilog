@@ -15,7 +15,7 @@ namespace IntelliVerilog.Core.Examples.TestSuites {
 
             prescaler = prescaler.RValue + 1;
 
-            var defaultDom = ScopedLocator.GetService<ClockDomain>();
+            var defaultDom = ScopedLocator.GetService<ClockDomain>()!;
 
 
             var subDom = new ClockDomain("down", prescaler[0]);

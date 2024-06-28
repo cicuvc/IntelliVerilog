@@ -21,7 +21,7 @@ namespace IntelliVerilog.Core.Runtime.Injection {
         private static object m_ProxyLock = new();
         private static object m_CompilationLock = new();
         private static int m_ProxyRefCount = 0;
-        private static bool m_CompilationRunning = false;
+        //private static bool m_CompilationRunning = false;
 
         public static bool ProxyActivated {
             get {

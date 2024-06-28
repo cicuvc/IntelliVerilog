@@ -57,7 +57,8 @@ namespace IntelliVerilog.Core.Logging {
                 LoggingLevel.Info => ConsoleColor.Green,
                 LoggingLevel.Verbose => ConsoleColor.Gray,
                 LoggingLevel.Error => ConsoleColor.Red,
-                LoggingLevel.Fatal => ConsoleColor.DarkRed
+                LoggingLevel.Fatal => ConsoleColor.DarkRed,
+                _ => ConsoleColor.Gray
             };
             Console.Write($"[{dateTime}]");
 

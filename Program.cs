@@ -1,5 +1,6 @@
 ﻿using Iced.Intel;
 using IntelliVerilog.Core.Analysis;
+using IntelliVerilog.Core.CodeGen;
 using IntelliVerilog.Core.CodeGen.Verilog;
 using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.DataTypes;
@@ -17,6 +18,7 @@ using IntelliVerilog.Core.Utils;
 using SharpPdb.Managed.Windows;
 using SharpUtilities;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -306,7 +308,7 @@ public class BehaviorContext {
         })) {
             ProcessBranchMerge();
 
-            m_Recorder.RestoreCheckPoint(m_EndCheckPoint, true);
+            m_Recorder.RestoreCheckPoint(m_EndCheckPoint!, true);
             throw new UnreachableException();
         } else {
             var enumValues = Enum.GetValues<TEnum>();
@@ -331,7 +333,7 @@ public class BehaviorContext {
         })) {
             ProcessBranchMerge();
 
-            m_Recorder.RestoreCheckPoint(m_EndCheckPoint, true);
+            m_Recorder.RestoreCheckPoint(m_EndCheckPoint!, true);
             throw new UnreachableException();
         } else {
             var condDesc = new PrimaryCondEval(returnAddress, condition);
@@ -419,128 +421,67 @@ public unsafe class ReturnAddressTracker {
     }
 }
 
-public class IvDefaultCodeGenerator {
-    protected Dictionary<ComponentModel, Components.Module> m_ModelCache;
-    protected Queue<Components.Module> m_GenerationQueue;
-    public async IAsyncEnumerable<string> GenerateModule() {
-        yield return "";
+public class GeneratedModule {
+    public Type ModuleType { get; }
+    public ComponentModel Model { get; }
+    public string TypeName => ModuleType.Name;
+    public string Code { get; }
+    public GeneratedModule(Components.Module module, string code) {
+        ModuleType = module.GetType();
+        Model = module.InternalModel;
+        Code = code;
     }
 }
-public class MetadataSigDecoder : ISignatureTypeProvider<Type, Type[]> {
-    public static MetadataSigDecoder Decoder { get; } = new();
-    public Type GetArrayType(Type elementType, ArrayShape shape) {
-        Debugger.Break(); return typeof(object);
+public class IvDefaultCodeGenerator<TConfiguration> where TConfiguration:CodeGenConfiguration,ICodeGenConfiguration<TConfiguration>,new() {
+    protected Dictionary<ComponentModel, Components.Module> m_ModelCache = new();
+    protected Queue<Components.Module> m_GenerationQueue = new();
+    protected ICodeGenBackend<TConfiguration> m_CodeGen;
+    protected TConfiguration m_Configuration;
+    public IvDefaultCodeGenerator(TConfiguration? configuration = null) {
+        m_Configuration = configuration ?? new();
+        m_CodeGen = TConfiguration.CreateBackend();
     }
+    public IEnumerable<GeneratedModule> GenerateModule(Components.Module top) {
+        var models = new List<GeneratedModule>();
 
-    public Type GetByReferenceType(Type elementType) {
-        Debugger.Break(); return typeof(object);
-    }
-
-    public Type GetFunctionPointerType(MethodSignature<Type> signature) {
-        Debugger.Break(); return typeof(object);
-    }
-
-    public Type GetGenericInstantiation(Type genericType, System.Collections.Immutable.ImmutableArray<Type> typeArguments) {
-        Debugger.Break(); return typeof(object);
-    }
-
-    public Type GetGenericMethodParameter(Type[] genericContext, int index) {
-        Debugger.Break(); return typeof(object);
-    }
-
-    public Type GetGenericTypeParameter(Type[] genericContext, int index) {
-        Debugger.Break(); return typeof(object);
-    }
-
-    public Type GetModifiedType(Type modifier, Type unmodifiedType, bool isRequired) {
-        Debugger.Break(); return typeof(object);
-    }
-
-    public Type GetPinnedType(Type elementType) {
-        Debugger.Break(); return typeof(object);
-    }
-
-    public Type GetPointerType(Type elementType) {
-        Debugger.Break(); return typeof(object);
-    }
-
-    public Type GetPrimitiveType(PrimitiveTypeCode typeCode) {
-        Debugger.Break(); return typeof(object);
-    }
-
-    public Type GetSZArrayType(Type elementType) {
-        Debugger.Break(); return typeof(object);
-    }
+        m_GenerationQueue.Enqueue(top);
+        m_ModelCache.Add(top.InternalModel, top);
 
 
-    public Type GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) {
-        var typeDef = reader.GetTypeDefinition(handle);
-        var name = reader.GetString(typeDef.Name);
-        var ns = reader.GetString(typeDef.Namespace);
-        var type = Type.GetType($"{ns}.{name}");
-        if(type == null) {
+        while (m_GenerationQueue.Count != 0) {
+            var currentModule = m_GenerationQueue.Dequeue();
 
-        }
-        Debugger.Break(); return typeof(object);
-    }
+            var code = m_CodeGen.GenerateModuleCode(currentModule, m_Configuration);
+            models.Add(new(currentModule, code));
 
-    public Type GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) {
-        Debugger.Break(); return typeof(object);
-    }
+            foreach (var i in currentModule.InternalModel.OverlappedObjects) {
+                if (!(i.Value is SubComponentDesc subComponentInstGroup)) continue;
+                foreach (var j in subComponentInstGroup) {
+                    if (j is Components.Module subModule) {
+                        if (!m_ModelCache.ContainsKey(j.InternalModel)) {
+                            m_ModelCache.Add(j.InternalModel, subModule);
 
-    public Type GetTypeFromSpecification(MetadataReader reader, Type[] genericContext, TypeSpecificationHandle handle, byte rawTypeKind) {
-        Debugger.Break(); return typeof(object);
-    }
-}
-public class MetadataSignaureContext {
-    protected Assembly m_Assembly;
-    protected MetadataReader m_Reader;
-    protected List<MemberReference> m_Members = new();
-    public MetadataReader Reader => m_Reader;
-    public unsafe MetadataSignaureContext(Assembly asm) {
-        m_Assembly = asm;
-        asm.TryGetRawMetadata(out var data, out var len);
-        m_Reader = new MetadataReader(data, len);
-        //CollectModuleInst();
-    }
-    protected void CollectModuleInst() {
-        foreach(var i in m_Reader.MemberReferences) {
-            var memberRef = m_Reader.GetMemberReference(i);
-            if(memberRef.Parent.Kind == HandleKind.TypeSpecification) {
-                var typeSpec = m_Reader.GetTypeSpecification((TypeSpecificationHandle)memberRef.Parent);
-
-            } else {
-                throw new NotImplementedException();
+                            m_GenerationQueue.Enqueue(subModule);
+                        }
+                    }
+                }
             }
         }
-        Debugger.Break();
-    }
-}
-public class MetadataSignatureService {
-    protected Dictionary<Assembly, MetadataSignaureContext> m_Assemblies = new();
-    protected ConstructorInfo m_CreateEntityHandle;
-    public static MetadataSignatureService Instance { get; } = new();
-    protected MetadataSignatureService() {
-        m_CreateEntityHandle = typeof(EntityHandle).GetConstructor(BindingFlags.NonPublic | BindingFlags.Instance, new Type[] { typeof(uint) })!;
 
-    }
-    public EntityHandle CreateEntityHandle(uint token) {
-        return (EntityHandle)m_CreateEntityHandle.Invoke(new object[] { token });
-    }
-    public MetadataSignaureContext GetReader(Assembly asm) {
-        if (!m_Assemblies.ContainsKey(asm)) {
-            m_Assemblies.Add(asm, new(asm));
-        }
-        return m_Assemblies[asm];
+        return models;
     }
 }
+
+public class ModuleCodeGroupedWriter {
+
+}
+
 public unsafe static class App {
 
     public static void Main() {
         Debugger.Break();
         
         IntelliVerilogLocator.RegisterService(ManagedDebugInfoService.Instance);
-        IntelliVerilogLocator.RegisterService(MetadataSignatureService.Instance);
         IntelliVerilogLocator.RegisterService<IDemangleSerivce>(CxxDemangle.Instance);
         
         var debugInfoLocator = new RuntimeInspectionDebugInfoLocator();
@@ -569,41 +510,15 @@ public unsafe static class App {
             Reset = dummyReset
         };
 
+        var generator = new IvDefaultCodeGenerator<VerilogGenerationConfiguration>();
 
         using (ClockArea.Begin(clkDomain)) {
             var adder = new RippleClock();
 
-            //var add2er = new TestMem<TestBF>(new TestBF());
+            var modules = generator.GenerateModule(adder);
 
-            var codeGen = new VerilogGenerator();
-            var generatedModel = new Dictionary<ComponentModel, Components.Module>();
-            var generationQueue = new Queue<Components.Module>();
-
-            generationQueue.Enqueue(adder);
-            generatedModel.Add(adder.InternalModel, adder);
-            //generationQueue.Enqueue(add2er);
-            //generatedModel.Add(add2er.InternalModel, adder);
-
-
-            while (generationQueue.Count != 0) {
-                var currentModule = generationQueue.Dequeue();
-
-                var code = codeGen.GenerateModuleCode(currentModule);
-
-                Console.WriteLine(code);
-
-                foreach (var i in currentModule.InternalModel.OverlappedObjects) {
-                    if (!(i.Value is SubComponentDesc subComponentInstGroup)) continue;
-                    foreach (var j in subComponentInstGroup) {
-                        if (j is Components.Module subModule) {
-                            if (!generatedModel.ContainsKey(j.InternalModel)) {
-                                generatedModel.Add(j.InternalModel, subModule);
-
-                                generationQueue.Enqueue(subModule);
-                            }
-                        }
-                    }
-                }
+            foreach(var i in modules) {
+                Console.WriteLine(i.Code);
             }
         }
         Console.ReadLine();

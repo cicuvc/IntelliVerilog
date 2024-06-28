@@ -105,7 +105,7 @@ namespace IntelliVerilog.Core.Components {
             context.OnEnterConstruction(this);
         }
         protected void EndConstruction() {
-            var model = m_InternalModel as ComponentBuildingModel;
+            var model = (ComponentBuildingModel)m_InternalModel!;
             model.Behavior.ConstructionEnd();
 
             model.ModelCheck();
@@ -121,7 +121,7 @@ namespace IntelliVerilog.Core.Components {
 
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
             if(context.CurrentComponent != null) {
-                var model = context.CurrentComponent.InternalModel as ComponentBuildingModel;
+                var model = context.GetComponentBuildingModel(throwOnNull: true)!;
                 model.AddEntity(this);
 
                 foreach (var i in (InternalModel.UsedClockDomains)) {

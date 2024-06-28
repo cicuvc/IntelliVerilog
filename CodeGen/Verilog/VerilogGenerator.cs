@@ -16,10 +16,14 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.CodeGen.Verilog {
-    public class VerilogGenerationConfiguration: CodeGenConfiguration {
+    public class VerilogGenerationConfiguration: CodeGenConfiguration,ICodeGenConfiguration<VerilogGenerationConfiguration> {
         public int IndentCount { get; set; } = 4;
         public char IndentChar { get; set; } = ' ';
         public string NewLine { get; set; } = Environment.NewLine;
+
+        public static ICodeGenBackend<VerilogGenerationConfiguration> CreateBackend() {
+            return new VerilogGenerator();
+        }
     }
     public class VerilogGenerationContext {
         public VerilogGenerationConfiguration Configuration { get; }
@@ -664,6 +668,8 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 var iUntyped = (IUntypedConstructionPort)ioComponent;
                 if(iUntyped.Component == model.ReferenceModule) {
                     var ioRef = module.IoPorts.Find(e => e.DeclIoComponent == ioComponent);
+                    if (ioRef == null) throw new Exception($"IO port for {ioComponent.Name()} missing");
+
                     return new VerilogPureIdentifier(ioRef.Name);
                 }
 
@@ -788,7 +794,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
                         var path = portInfo.Location;
                         for (var j=0;j< subComponentInstGroup.Count; j++) {
-                            var externalOutput = path.TraceValue(subComponentInstGroup[j]);
+                            var externalOutput = path.TraceValue(subComponentInstGroup[j]) ?? throw new NullReferenceException("Missing external output placeholder");
                             var selection = new VerilogRangeSelection(wireDef.Identifier, new(j,(j + 1)), instGroup.Count, false);
                             
                             moduleAst.SubModuleOutputMap.Add(externalOutput, selection);
@@ -829,7 +835,9 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     if(port is IAssignableValue) {
                         totalBits = (int)port.UntypedType.WidthBits;
                         assignable = (IAssignableValue)port;
-                        identifier = moduleAst.IoPorts.Find(e => e.DeclIoComponent == port).Identifier;
+
+                        var portNode = moduleAst.IoPorts.Find(e => e.DeclIoComponent == port) ?? throw new NullReferenceException($"Missing port ast node for {port.Name()}");
+                        identifier = portNode.Identifier;
 
                     }
                 }
@@ -865,7 +873,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                             var portName = portInfo.Name();
                             if (portInfo.Direction == IoPortDirection.Output) {
                                 var path = portInfo.Location;
-                                var externalOutput = path.TraceValue(subModule);
+                                var externalOutput = path.TraceValue(subModule) ?? throw new NullReferenceException($"Missing port instance for port '{portInfo.Name()}'");
 
                                 var exportWire = moduleAst.SubModuleOutputMap[externalOutput];
 
@@ -942,6 +950,8 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 if (registers.Count() == 0) continue;
 
                 var clock = moduleAst.IoPorts.Find(e => (e.DeclIoComponent is ClockDomainInput{ SignalType:ClockDomainSignal.Clock} domainInput) && domainInput.ClockDom == i);
+                if (clock == null) throw new NullReferenceException($"Unable to resolve clock signal for clock domain '{i.Name}'");
+
 
                 var alwaysFF = new VerilogAlwaysFF(clock.Identifier) {
                     ClockPositiveEdge = i.ClockRiseEdge,
@@ -949,6 +959,8 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 };
                 if(!(i.RawReset is null)) {
                     var reset = moduleAst.IoPorts.Find(e => (e.DeclIoComponent is ClockDomainInput { SignalType: ClockDomainSignal.Reset } domainInput) && domainInput.ClockDom == i);
+
+                    if (reset == null) throw new NullReferenceException($"Unable to resolve reset signal for clock domain '{i.Name}'");
                     alwaysFF.ResetSignal = reset.Identifier;
                 }
 
@@ -1008,13 +1020,13 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         }
         protected VerilogAstNode ResolveLeftValueRef(IAssignableValue leftValue, VerilogModule moduleAst) {
             if(leftValue is IUntypedConstructionPort port) {
-                var portNode = moduleAst.IoPorts.Find(e => e.DeclIoComponent == port);
+                var portNode = moduleAst.IoPorts.Find(e => e.DeclIoComponent == port) ?? throw new Exception($"Unable to resolve port ast node for port '{port.Name()}'");
 
                 return portNode.Identifier;
 
             }
             if(leftValue is RegisterDesc register) {
-                var regNode = moduleAst.Registers.Find(e => e.RegisterInfo == register);
+                var regNode = moduleAst.Registers.Find(e => e.RegisterInfo == register) ?? throw new Exception($"Unable to resolve register ast node for register '{register.Name()}'"); ;
 
                 return regNode.Identifier;
             }

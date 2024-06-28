@@ -187,7 +187,7 @@ namespace IntelliVerilog.Core.Expressions {
             ClockDom = clockDom;
             SignalType = sigType;
 
-            var componentModel = IntelliVerilogLocator.GetService<AnalysisContext>().GetComponentBuildingModel()!;
+            var componentModel = IntelliVerilogLocator.GetService<AnalysisContext>()!.GetComponentBuildingModel(throwOnNull: true)!;
             componentModel.AssignEntityName($"gen_{clockDom.Name}_{m_SignalNames[(int)sigType]}",this);
         }
     }

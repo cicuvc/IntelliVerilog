@@ -40,7 +40,7 @@ namespace IntelliVerilog.Core.Expressions {
             Name = () => $"{Descriptor.InstanceName}_{((List<Reg>)Descriptor).IndexOf(this)}";
 
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
-            var componentModel = context.CurrentComponent!.InternalModel as ComponentBuildingModel;
+            var componentModel = context.GetComponentBuildingModel() ?? throw new NullReferenceException("Component building model not available");
 
             componentModel.AddEntity(this);
             componentModel.RegisterClockDomain(ClockDom);
@@ -50,7 +50,7 @@ namespace IntelliVerilog.Core.Expressions {
             Debug.Assert(clockDom != null);
 
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
-            var componentModel = context.CurrentComponent!.InternalModel as ComponentBuildingModel;
+            var componentModel = context.GetComponentBuildingModel(throwOnNull: true)!;
 
             var Reg = new Reg<TData>(type, clockDom) { 
                 NoClockDomainCheck = noClockDomainCheck
@@ -63,18 +63,15 @@ namespace IntelliVerilog.Core.Expressions {
             ref var register = ref New(type, clockDom, noClockDomainCheck);
 
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
-            var componentModel = context.CurrentComponent!.InternalModel as ComponentBuildingModel;
+            var componentModel = context.GetComponentBuildingModel(throwOnNull: true)!;
 
             var returnAddressTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
             var returnAddress = returnAddressTracker.TrackReturnAddress(inputValue, paramIndex: 3);
             componentModel.AssignSubModuleConnections(register, inputValue, .., returnAddress);
 
-            return ref register;
+            return ref register!;
         }
 
-        public AssignmentInfo CreateAssignmentInfo() {
-            return new RegAssignmentInfo(this);
-        }
     }
     public class ExpressedReg<TData> : Reg<TData>, IExpressionAssignedIoType where TData : DataType, IDataType<TData> {
         public ExpressedReg(RightValue<TData> expression, ClockDomain? clockDom) : base(expression.TypedType, clockDom) {
@@ -201,5 +198,12 @@ namespace IntelliVerilog.Core.Expressions {
         public static RightValue<TData> operator ~(Reg<TData> lhs) {
             return ~lhs.RValue;
         }
+        public override bool Equals(object? obj) {
+            return ReferenceEquals(this, obj);
+        }
+        public override int GetHashCode() {
+            return base.GetHashCode();
+        }
+
     }
 }
