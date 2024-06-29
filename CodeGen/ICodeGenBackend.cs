@@ -9,8 +9,8 @@ namespace IntelliVerilog.Core.CodeGen {
     public interface ICodeGenBackend<TConfiguration> where TConfiguration: CodeGenConfiguration, ICodeGenConfiguration<TConfiguration>,new() {
         string GenerateModuleCode(Module module, TConfiguration? configuration);
     }
-    public class CodeGenConfiguration {
-
+    public abstract class CodeGenConfiguration {
+        public abstract string ExtensionName { get; set; }
     }
     public interface ICodeGenConfiguration<TConfiguration> where TConfiguration: CodeGenConfiguration, ICodeGenConfiguration<TConfiguration>,new() {
         static abstract ICodeGenBackend<TConfiguration> CreateBackend();

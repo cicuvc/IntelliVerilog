@@ -20,6 +20,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         public int IndentCount { get; set; } = 4;
         public char IndentChar { get; set; } = ' ';
         public string NewLine { get; set; } = Environment.NewLine;
+        public override string ExtensionName { get; set; } = ".v";
 
         public static ICodeGenBackend<VerilogGenerationConfiguration> CreateBackend() {
             return new VerilogGenerator();
@@ -694,7 +695,10 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
             if(value is UIntLiteral literal) {
                 return new VerilogConst((int)literal.Type.WidthBits, literal.Value);
             }
-            if(value is RegisterValue registerValue) {
+            if (value is BoolLiteral bLiteral) {
+                return new VerilogConst(1, bLiteral.Value ? 1 : 0);
+            }
+            if (value is RegisterValue registerValue) {
                 var register = module.Registers.Find(e => e.RegisterInfo == registerValue.BaseRegister);
                 Debug.Assert(register != null);
 
@@ -969,7 +973,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                         return (assignment.LeftValue is ClockDrivenRegister realRegister) && (realRegister.ClockDom == i);
                     }
                     return true;
-                }));
+                }, true));
                 alwaysFF.RegisterNames.AddRange(registers);
 
                 moduleAst.Contents.Add(alwaysFF);
@@ -977,7 +981,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
             return moduleAst;
         }
-        protected IEnumerable<VerilogAstNode> ExpandBehaviorBlock(IEnumerable<BehaviorDesc> block, ComponentModel compModel, VerilogModule moduleAst,Func<BehaviorDesc,bool> allowEmit) {
+        protected IEnumerable<VerilogAstNode> ExpandBehaviorBlock(IEnumerable<BehaviorDesc> block, ComponentModel compModel, VerilogModule moduleAst,Func<BehaviorDesc,bool> allowEmit, bool noBlocking = false) {
             return block.Where(allowEmit).Select(e => {
                 if (e is BranchDesc branch) {
                     var trueBlock = ExpandBehaviorBlock(branch.TrueBranch, compModel, moduleAst, allowEmit);
@@ -994,8 +998,6 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 }
                 if(e is PrimaryAssignment assignment) {
                     var leftValue = ResolveLeftValueRef(assignment.UntypedLeftValue, moduleAst);
-
-                    var noBlocking = false;
 
                     var value = ConvertExpressions(assignment.RightValue, compModel, moduleAst);
                     var leftValueSelection = new VerilogRangeSelection(leftValue, assignment.SelectedRange, (int)assignment.LeftValue.UntypedType.WidthBits);

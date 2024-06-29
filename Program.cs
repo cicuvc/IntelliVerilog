@@ -422,11 +422,13 @@ public unsafe class ReturnAddressTracker {
 }
 
 public class GeneratedModule {
+    public CodeGenConfiguration Configuration { get; }
     public Type ModuleType { get; }
     public ComponentModel Model { get; }
     public string TypeName => ModuleType.Name;
     public string Code { get; }
-    public GeneratedModule(Components.Module module, string code) {
+    public GeneratedModule(CodeGenConfiguration configuration, Components.Module module, string code) {
+        Configuration = configuration;
         ModuleType = module.GetType();
         Model = module.InternalModel;
         Code = code;
@@ -452,7 +454,7 @@ public class IvDefaultCodeGenerator<TConfiguration> where TConfiguration:CodeGen
             var currentModule = m_GenerationQueue.Dequeue();
 
             var code = m_CodeGen.GenerateModuleCode(currentModule, m_Configuration);
-            models.Add(new(currentModule, code));
+            models.Add(new(m_Configuration,currentModule, code));
 
             foreach (var i in currentModule.InternalModel.OverlappedObjects) {
                 if (!(i.Value is SubComponentDesc subComponentInstGroup)) continue;
@@ -472,14 +474,52 @@ public class IvDefaultCodeGenerator<TConfiguration> where TConfiguration:CodeGen
     }
 }
 
-public class ModuleCodeGroupedWriter {
+public static class GenerationHelpers { 
+    public static void WriteGroupedCodeFiles(IEnumerable<GeneratedModule> modules, string outputDir) {
+        var fullDirectory = Path.GetFullPath(outputDir);
 
+        Directory.CreateDirectory(fullDirectory);
+
+        var groups = modules.GroupBy(e => {
+            if (e.ModuleType.IsConstructedGenericType) return e.ModuleType.GetGenericTypeDefinition();
+            return e.ModuleType;
+        });
+
+        foreach (var i in groups) {
+            var fileName = ReflectionHelpers.DenseTypeName(i.Key);
+            var firstModule = i.First();
+
+            var filePath = Path.Join(fullDirectory, $"{fileName}{firstModule.Configuration.ExtensionName}");
+
+            if (File.Exists(filePath)) File.Delete(filePath);
+
+            IvLogger.Default.Info("CodeWrite", $"Write code file {filePath}");
+
+            foreach(var j in i) {
+                File.AppendAllText(filePath, j.Code);
+            }
+        }
+    }
+}
+
+public struct GenericIndex {
+    public Range Range { get; }
+    public GenericIndex(Range range) => Range = range;
+    public static implicit operator GenericIndex(Range range) => new(range);
+    public static implicit operator GenericIndex(int index) => new(index..(index+1));
+    public static implicit operator GenericIndex(uint index) => new((int)index..((int)index + 1));
+}
+
+public struct GenericIndices {
+    public GenericIndex[]? Indices { get; }
+    public GenericIndices(GenericIndex[]? indices) => Indices = indices;
 }
 
 public unsafe static class App {
 
     public static void Main() {
         Debugger.Break();
+
         
         IntelliVerilogLocator.RegisterService(ManagedDebugInfoService.Instance);
         IntelliVerilogLocator.RegisterService<IDemangleSerivce>(CxxDemangle.Instance);
@@ -517,9 +557,7 @@ public unsafe static class App {
 
             var modules = generator.GenerateModule(adder);
 
-            foreach(var i in modules) {
-                Console.WriteLine(i.Code);
-            }
+            GenerationHelpers.WriteGroupedCodeFiles(modules, "./output");
         }
         Console.ReadLine();
     

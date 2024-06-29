@@ -39,7 +39,22 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
         public UIntNotExpression(RightValue<UInt> lhs) : base(lhs) {
         }
     }
+    public class BoolLiteral : RightValue<Bool> {
+        public static BoolLiteral True { get; } = new(true);
+        public static BoolLiteral False { get; } = new(false);
+        public static BoolLiteral ToLiteral(bool value) => value ? True : False;
+        public bool Value { get; }
+        private BoolLiteral(bool value) : base(Bool.CreateDefault()) {
+            Value = value;
+        }
 
+        public override void EnumerateSubNodes(Action<AbstractValue> callback) {
+        }
+
+        public override bool Equals(AbstractValue? other) {
+            return ReferenceEquals(this, other);
+        }
+    }
     public class UIntLiteral : RightValue<UInt> {
         public BigInteger Value { get; }
         public override DataType Type {

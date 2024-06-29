@@ -87,6 +87,11 @@ namespace IntelliVerilog.Core.DataTypes {
             return new UIntLiteral(x);
         }
     }
+    public static class BoolExtensions {
+        public static RightValue<Bool> Const(this bool x) {
+            return BoolLiteral.ToLiteral(x);
+        }
+    }
     public class Int : RawBits {
         public Int(uint bits) : base(bits) {
         }

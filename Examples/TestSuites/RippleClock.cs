@@ -23,6 +23,7 @@ namespace IntelliVerilog.Core.Examples.TestSuites {
 
             var dataReg = new DFF(15, subDom);
 
+            dataReg.IO.en = true.Const();
             dataReg.IO.inValue = 12u.Const();
 
         }
