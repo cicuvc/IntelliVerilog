@@ -13,10 +13,10 @@ namespace IntelliVerilog.Core.Expressions {
 
         public IoComponent InternalOut => UntypedComponent;
 
-        public Range SelectedRange => (..);
+        public GenericIndices SelectedRange => throw new NotImplementedException();
     }
     public class InternalOutput<TData> : TypeSpecifiedOutput<TData>, IUntypedConstructionPort, IAssignableValue where TData : DataType, IDataType<TData> {
-        public InternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member) : base(dataType) {
+        public InternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member) : base(dataType, new([(int)dataType.WidthBits])) {
             PortMember = member; ;
             Parent = parent;
             Component = root;
@@ -42,26 +42,9 @@ namespace IntelliVerilog.Core.Expressions {
             return new IoPortAssignmentInfo(this);
         }
 
-        public unsafe override RightValue<Bool> this[int index] {
+        public unsafe override RightValue<TData> this[params GenericIndex[] range] {
             get {
-                return new InvertedInternalOutput<Bool>(Bool.CreateDefault(), this, index..(index + 1));
-            }
-            set {
-                var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
-                var returnAddress = returnTracker.TrackReturnAddress(this);
-                var analysisContext = IntelliVerilogLocator.GetService<AnalysisContext>()!;
-                var currentModel = analysisContext.CurrentComponent?.InternalModel as ComponentBuildingModel;
-
-                if (currentModel == null) return;
-
-                var wrapper = new ExpressedOutput<Bool>(value);
-
-                currentModel.AssignSubModuleConnections(this, wrapper, index..(index + 1), returnAddress);
-            } 
-        }
-        public unsafe override RightValue<TData> this[Range range] {
-            get {
-                return new InvertedInternalOutput<TData>((TData)UntypedType, this, range);
+                return new InvertedInternalOutput<TData>((TData)UntypedType, this, new(range));
             }
             set {
                 var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
@@ -73,7 +56,7 @@ namespace IntelliVerilog.Core.Expressions {
 
                 var wrapper = new ExpressedInput<TData>(value);
 
-                currentModel.AssignSubModuleConnections(this, wrapper, range, returnAddress);
+                currentModel.AssignSubModuleConnections(this, wrapper, new(range), returnAddress);
             }
         }
 

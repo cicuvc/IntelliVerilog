@@ -53,14 +53,14 @@ namespace IntelliVerilog.Core.Examples {
                 var fullAdder = new FullAdder(){
                     Io = new() {
                         
-                        B = io.B[i],
+                        B = io.B[i].Cast<Bool>(),
                         C = carryInput,
                         //S = io.S[i]
                     }
                 };
 
-                fullAdder.Io.A[0] = io.A[i];
-                io.S[i] = fullAdder.Io.S;
+                fullAdder.Io.A[0] = io.A[i].Cast<Bool>();
+                io.S[i] = fullAdder.Io.S.RValue.Cast<UInt>();
                 //io.S[i] = fullAdder.Io.S;
                 carryInput = fullAdder.Io.CO;
             }

@@ -44,7 +44,7 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
         public static BoolLiteral False { get; } = new(false);
         public static BoolLiteral ToLiteral(bool value) => value ? True : False;
         public bool Value { get; }
-        private BoolLiteral(bool value) : base(Bool.CreateDefault()) {
+        private BoolLiteral(bool value) : base(Bool.CreateDefault(), new([1])) {
             Value = value;
         }
 
@@ -66,10 +66,10 @@ namespace IntelliVerilog.Core.Expressions.Algebra {
             }
         }
 
-        public UIntLiteral(ulong value):base(new(uint.MaxValue)) {
+        public UIntLiteral(ulong value):base(new(uint.MaxValue), new([-1])) {
             Value = value;
         }
-        public UIntLiteral(BigInteger value) : base(new(uint.MaxValue)) {
+        public UIntLiteral(BigInteger value) : base(new(uint.MaxValue), new([-1])) {
             Value = value;
         }
         public override bool Equals(AbstractValue? other) {

@@ -9,8 +9,8 @@ namespace IntelliVerilog.Core.Expressions {
         public abstract AbstractValue UntypedRValue { get; }
         public abstract IoPortDirection Direction { get; }
         public abstract GeneralizedPortFlags Flags { get; }
+        public abstract ValueShape Shape { get; }
         public virtual Func<string> Name { get; set; } = () => "<unnamed port>";
-
         //public abstract void InitUnspecifiedLocated(IoBundle parent, ComponentBase root, IoMemberInfo member);
     }
     
@@ -99,15 +99,7 @@ namespace IntelliVerilog.Core.Expressions {
             return ~lhs.RValue;
         }
 
-        public RightValue<Bool> this[uint index] {
-            get => RValue[index];
-            set => RValue[index] = value;
-        }
-        public abstract RightValue<Bool> this[int index] {
-            get;
-            set;
-        }
-        public abstract RightValue<TData> this[Range range] {
+        public abstract RightValue<TData> this[params GenericIndex[] range] {
             get;set;
         }
         public override bool Equals(object? obj) {

@@ -260,6 +260,8 @@ namespace IntelliVerilog.Core.Components {
         public IUntypedConstructionPort InternalPort => throw new NotImplementedException();
 
         public Func<string> Name { get; set; } = () => "<unnamed bundle>";
+        [IoIgnore]
+        public ValueShape Shape => throw new NotImplementedException();
 
         public IoBundle() {
             Component = Component ?? null!;

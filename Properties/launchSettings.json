@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "IntelliVerilog.Core": {
+      "commandName": "Project",
+      "nativeDebugging": true,
+      "hotReloadEnabled": false
+    }
+  }
+}

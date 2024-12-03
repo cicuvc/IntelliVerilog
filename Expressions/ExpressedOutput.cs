@@ -9,10 +9,9 @@ namespace IntelliVerilog.Core.Expressions {
         public override AbstractValue UntypedRValue => UntypedExpression;
         public override GeneralizedPortFlags Flags => GeneralizedPortFlags.SingleComponent | GeneralizedPortFlags.WidthSpecified;
 
-        public override RightValue<TData> this[Range range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-        public override RightValue<Bool> this[int index] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+        public override RightValue<TData> this[params GenericIndex[] range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
-        public ExpressedOutput(RightValue<TData> expression) : base(expression.TypedType) {
+        public ExpressedOutput(RightValue<TData> expression) : base(expression.TypedType, expression.Shape) {
             Expression = expression;
         }
     }

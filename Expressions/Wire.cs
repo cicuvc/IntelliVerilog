@@ -16,7 +16,7 @@ namespace IntelliVerilog.Core.Expressions {
     public class WireRightValueWrapper<TData> : RightValue<TData> , IWireRightValueWrapper where TData : DataType, IDataType<TData> {
         public Wire<TData> WireDef { get; }
         public Wire UntyedWire => WireDef;
-        public WireRightValueWrapper(Wire<TData> wire):base((TData)wire.UntypedType) {
+        public WireRightValueWrapper(Wire<TData> wire):base((TData)wire.UntypedType,wire.Shape) {
             WireDef = wire;
         }
         public override void EnumerateSubNodes(Action<AbstractValue> callback) {}
@@ -36,20 +36,24 @@ namespace IntelliVerilog.Core.Expressions {
         public IOverlappedObjectDesc Descriptor { get; set; }
 
         public abstract AbstractValue UntypedRValue { get; }
+        public ValueShape Shape { get; }
 
-        public Wire(DataType type) {
+        public Wire(DataType type, ValueShape shape) {
             var defaultName = $"W{Utility.GetRandomStringHex(16)}";
 
             UntypedType = type;
             Descriptor = new WireOverlappedDesc(defaultName, type) { this };
 
             Name = () => $"{Descriptor.InstanceName}_{((List<Wire>)Descriptor).IndexOf(this)}";
+
+            Shape = shape;
         }
-        public static ref Wire<TData> New<TData>(TData type) where TData : DataType, IDataType<TData> {
+        public static ref Wire<TData> New<TData>(TData type, int[]? shape = null) where TData : DataType, IDataType<TData> {
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
             var componentModel = context.GetComponentBuildingModel(throwOnNull: true)!;
 
-            var wire = new Wire<TData>(type);
+            shape ??= Array.Empty<int>();
+            var wire = new Wire<TData>(type, new(shape.Append((int)type.WidthBits).ToArray()));
 
             var pointerStorage = componentModel.RegisterWire(wire);
             return ref Unsafe.As<IReferenceTraceObject, Wire<TData>>(ref pointerStorage.Pointer);
@@ -60,7 +64,7 @@ namespace IntelliVerilog.Core.Expressions {
         }
     }
     public class ExpressedWire<TData>:Wire<TData> , IExpressionAssignedIoType where TData : DataType, IDataType<TData> {
-        public ExpressedWire(RightValue<TData> expression) : base(expression.TypedType) {
+        public ExpressedWire(RightValue<TData> expression) : base(expression.TypedType, expression.Shape) {
             Expression = expression;
         }
 
@@ -80,38 +84,17 @@ namespace IntelliVerilog.Core.Expressions {
             }
         }
         public override AbstractValue UntypedRValue => RValue;
-        public Wire(TData type) : base(type) {
+        public Wire(TData type,ValueShape shape) : base(type,shape) {
             var componentModel = IntelliVerilogLocator.GetService<AnalysisContext>()!.GetComponentBuildingModel(throwOnNull: true)!;
             componentModel.AddEntity(this);
+         
         }
         
         public static implicit operator Wire<TData>(RightValue<TData> value) {
             return new ExpressedWire<TData>(value);
         }
-        public RightValue<Bool> this[uint index] {
-            get => RValue[index];
-            set {
-                throw new NotImplementedException();
-            }
-        }
 
-        public RightValue<Bool> this[int index] {
-            get => RValue[index];
-            set {
-                var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
-                var returnAddress = returnTracker.TrackReturnAddress(this);
-                var analysisContext = IntelliVerilogLocator.GetService<AnalysisContext>()!;
-                var currentModel = analysisContext.CurrentComponent?.InternalModel as ComponentBuildingModel;
-
-                if (currentModel == null) return;
-
-                var cast = new CastExpression<TData>((TData)UntypedType.CreateWithWidth(1), value);
-                var wrapper = new ExpressedWire<TData>(cast);
-
-                currentModel.AssignSubModuleConnections(this, wrapper, index..(index+1), returnAddress);
-            }
-        }
-        public RightValue<TData> this[Range range] {
+        public RightValue<TData> this[params GenericIndex[] range] {
             get => RValue[range];
             set {
                 var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
@@ -123,7 +106,7 @@ namespace IntelliVerilog.Core.Expressions {
 
                 var wrapper = new ExpressedWire<TData>(value);
 
-                currentModel.AssignSubModuleConnections(this, wrapper, range, returnAddress);
+                currentModel.AssignSubModuleConnections(this, wrapper, new(range), returnAddress);
             }
         }
 

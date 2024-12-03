@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -16,6 +17,13 @@ public interface IRecursiveExpression {
 }
 public abstract class AbstractValue :IEquatable<AbstractValue>, IRecursiveExpression {
     protected DataType m_ValueType;
+    protected GCHandle m_WeakRef;
+    public GCHandle WeakRef {
+        get {
+            if (!m_WeakRef.IsAllocated) m_WeakRef = GCHandle.Alloc(this, GCHandleType.Weak);
+            return m_WeakRef;
+        }
+    }
     public virtual DataType Type { 
         get=> m_ValueType;
         set {
@@ -23,21 +31,41 @@ public abstract class AbstractValue :IEquatable<AbstractValue>, IRecursiveExpres
                 throw new InvalidOperationException("Data type already specified");
             }
             m_ValueType = value;
+            var shape = Shape.ToArray();
+            shape[shape.Length - 1] = (int)value.WidthBits;
+            Shape = new(shape);
 
             EnumerateSubNodes(PropagateDataType);
         }
     }
     public IAlg Algebra { get; }
-    public AbstractValue(DataType type, IAlg? algebra = null) {
+    public ValueShape Shape { get; set; }
+    public AbstractValue(DataType type, ValueShape shape , IAlg? algebra = null) {
         m_ValueType = type;
         Algebra = algebra ?? type.DefaultAlgebra;
+        Shape = shape;
     }
     public abstract bool Equals(AbstractValue? other);
-    public AbstractValue GetBitSelection(Range range) {
-        return new GeneralBitsSelectionExpression(this, new(range, (int)Type.WidthBits));
+    public AbstractValue GetBitSelection(GenericIndices range) {
+        var newShape = range.ResolveResultType(Shape);
+        var newSelection = range.ResolveSelectionRange(Shape);
+        return new GeneralBitsSelectionExpression(this, newShape, newSelection);
     }
-    public AbstractValue GetCombination(params AbstractValue[] values) {
-        return new GeneralCombinationExpression(values[0].Type, values);
+    public AbstractValue GetCombination(int axis = -1,params AbstractValue[] values) {
+        Debug.Assert(values.Length > 0);
+        var newShape = values[0].Shape.ToArray();
+        if (axis == -1) axis = newShape.Length - 1;
+
+        foreach (var i in values) {
+            var shape = i.Shape;
+            for(var j = 0; j < shape.Length; j++) {
+                if (j == axis) newShape[j] += shape[j];
+                else if (shape[j] != newShape[j]) {
+                    throw new InvalidOperationException("Incompatible shape");
+                }
+            }
+        }
+        return new GeneralCombinationExpression(values[0].Type, new(newShape), values);
     }
     public AbstractValue UnwrapCast() {
         if (!(this is IUntypedCastExpression castExpression)) return this;
@@ -49,18 +77,22 @@ public abstract class AbstractValue :IEquatable<AbstractValue>, IRecursiveExpres
     }
     public RightValue<TData> Cast<TData>(TData? type = null) where TData : DataType, IDataType<TData> {
         type ??= TData.CreateDefault();
-        return new CastExpression<TData>(type, this);
+        return new CastExpression<TData>(type, Shape,this);
     }
     public abstract void EnumerateSubNodes(Action<AbstractValue> callback);
 
     private void PropagateDataType(AbstractValue subNode) {
         subNode.Type = m_ValueType;
     }
+
+    ~AbstractValue() {
+        if (m_WeakRef.IsAllocated) m_WeakRef.Free();
+    }
 }
 
 public class GeneralCombinationExpression : AbstractValue{
     public AbstractValue[] SubExpressions { get; }
-    public GeneralCombinationExpression(DataType type,AbstractValue[] subExpressions) : base(type.CreateWithWidth((uint)subExpressions.Sum(e => e.Type.WidthBits))) {
+    public GeneralCombinationExpression(DataType type,ValueShape newShape,AbstractValue[] subExpressions) : base(type.CreateWithWidth((uint)newShape.TotalBits), newShape) {
         SubExpressions = subExpressions;
     }
     public override bool Equals(AbstractValue? other) {
@@ -75,14 +107,14 @@ public class GeneralCombinationExpression : AbstractValue{
     }
 }
 public interface IUntypedGeneralBitSelectionExpression: IUntypedUnaryExpression {
-    SpecifiedRange SelectedRange { get; }
+    SpecifiedIndices SelectedRange { get; }
 }
 public class GeneralBitsSelectionExpression : AbstractValue, IUntypedGeneralBitSelectionExpression {
-    public SpecifiedRange SelectedRange { get; }
+    public SpecifiedIndices SelectedRange { get; }
 
     public AbstractValue UntypedValue { get; }
 
-    public GeneralBitsSelectionExpression(AbstractValue baseExpression, SpecifiedRange range) : base(baseExpression.Type.CreateWithWidth((uint)range.BitWidth)) {
+    public GeneralBitsSelectionExpression(AbstractValue baseExpression, ValueShape shape, SpecifiedIndices range) : base(baseExpression.Type.CreateWithWidth((uint)range.TotalBits), shape) {
         UntypedValue = baseExpression;
         SelectedRange = range;
     }
@@ -119,18 +151,15 @@ public interface IRightValueOps<TValue, TData> where TValue: IRightValueOps<TVal
 }
 
 public interface IRightValueSelectionOps<TData> where TData: DataType, IDataType<TData> {
-    public RightValue<Bool> this[uint index] { get; }
-    public RightValue<Bool> this[int index] { get; }
-    public RightValue<TData> this[Range range] { get; }
+    public RightValue<TData> this[params GenericIndex[] range] { get; }
 }
 public interface ILeftValueOps<TData> where TData : DataType, IDataType<TData> {
-    public RightValue<Bool> this[uint index] { set; }
-    public RightValue<Bool> this[int index] { set; }
-    public RightValue<TData> this[Range range] { set; }
+    public RightValue<TData> this[params GenericIndex[] range] { set; }
 }
 
 public interface IRightValueConvertible {
     AbstractValue UntypedRValue { get; }
+    ValueShape Shape { get; }
 }
 
 public interface IRightValueConvertible<TData>: IRightValueConvertible where TData : DataType, IDataType<TData> {
@@ -144,7 +173,7 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
 
     public AbstractValue UntypedRValue => this;
 
-    public RightValue(TData type, IAlg? algebra = null) : base(type, algebra) {
+    public RightValue(TData type, ValueShape shape,IAlg? algebra = null) : base(type, shape, algebra) {
     }
     protected static void CheckArithmeticCompatiblity(RightValue<TData> lhs, RightValue<TData> rhs) {
         if (lhs.Algebra != rhs.Algebra) {
@@ -222,7 +251,7 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
         return lhs.TypedAlgebra.NotExpression(lhs);
     }
     public RightValue<TCast> Cast<TCast>() where TCast : DataType, IDataType<TCast> {
-        return new CastExpression<TCast>(TCast.CreateWidth(Type.WidthBits), this);
+        return new CastExpression<TCast>(TCast.CreateWidth(Type.WidthBits), Shape,this);
     }
 
     public RightValue<Bool> this[uint index] {
@@ -230,11 +259,21 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
         set => throw new NotImplementedException();
     }
     public RightValue<Bool> this[int index] {
-        get => new CastExpression<Bool>(Bool.CreateDefault(), GetBitSelection(index..(index+1)));
+        get {
+            var indices = new GenericIndices(index);
+            var newShape = indices.ResolveResultType(Shape);
+            Debug.Assert(newShape.TotalBits == 1);
+
+            return new CastExpression<Bool>(Bool.CreateDefault(), newShape,  GetBitSelection(new(index..(index + 1))));
+        }
         set => throw new NotImplementedException();
     }
-    public RightValue<TData> this[Range range] {
-        get => new CastExpression<TData>(TData.CreateWidth((uint)range.GetOffsetAndLength((int)Type.WidthBits).Length), GetBitSelection(range));
+    public RightValue<TData> this[params GenericIndex[] range] {
+        get {
+            var indices = new GenericIndices(range);
+            var selection = GetBitSelection(new(range));
+            return new CastExpression<TData>(TData.CreateWidth((uint)selection.Shape.Last()), selection.Shape,selection );
+        }
         set => throw new NotImplementedException();
     }
     public TEnum ToSwitch<TEnum>() where TEnum : unmanaged, Enum {
@@ -256,7 +295,7 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
 
 
 public abstract class LeftValue<TData> : RightValue<TData>, ILeftValueOps<TData> where TData : DataType, IDataType<TData> {
-    public LeftValue(TData type, IAlg? algebra = null) : base(type, algebra) {
+    public LeftValue(TData type, ValueShape shape,IAlg? algebra = null) : base(type, shape, algebra) {
     }
 
     
@@ -269,7 +308,7 @@ public class CastExpression<TDest> : RightValue<TDest>, IUntypedCastExpression w
 
     public AbstractValue UntypedValue { get; }
 
-    public CastExpression(TDest type, AbstractValue value) : base(type, type.DefaultAlgebra) {
+    public CastExpression(TDest type, ValueShape shape, AbstractValue value) : base(type,shape, type.DefaultAlgebra) {
         UntypedValue = value;
     }
 

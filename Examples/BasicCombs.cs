@@ -21,6 +21,42 @@ namespace IntelliVerilog.Core.Examples {
             io.outValue = io.inValue.RValue;
         }
     }
+    public class Identical : Module<(
+        Input<UInt> way1In,
+        Input<UInt> way2In,
+        Output<UInt> way1,
+        Output<UInt> way2)> { 
+        public Identical(uint width) {
+            ref var io = ref UseDefaultIo(new() {
+                way1In = width.Bits(),
+                way2In = width.Bits(),
+                way1 = width.Bits(),
+                way2 = width.Bits()
+            });
+
+            var splitter = new Splitter(width);
+            splitter.IO.twoWay[0] = io.way1In[GenericIndex.None];
+            splitter.IO.twoWay[1] = io.way2In[GenericIndex.None];
+
+            io.way1 = splitter.IO.way1;
+            io.way2 = splitter.IO.way2;
+        }
+    }
+    public class Splitter:Module<(
+        Input<UInt> twoWay,
+        Output<UInt> way1,
+        Output<UInt> way2)> {
+        public Splitter(uint width) {
+            ref var io = ref UseDefaultIo(new() { 
+                twoWay = width.Bits([2]),
+                way1 = width.Bits(),
+                way2 = width.Bits()
+            });
+
+            io.way1 = io.twoWay[0];
+            io.way2 = io.twoWay[1];
+        }
+    }
     public class DFF : Module<(
         Input<UInt> inValue,
         Input<Bool> en,
@@ -32,7 +68,7 @@ namespace IntelliVerilog.Core.Examples {
                 outValue = width.Bits()
             });
 
-            ref var register = ref Reg.New(width.Bits(), clockDom);
+            ref var register = ref Reg.New(width.Bits(), clockDom: clockDom);
 
             if (io.en.RValue) {
                 register = io.inValue.RValue;
@@ -77,7 +113,7 @@ namespace IntelliVerilog.Core.Examples {
             for(var i = 0; i < bits; i++) {
                 idModule[i] = new IdentiMod(1);
                 idModule[i].IO.inValue = io.a[i].Cast<UInt>();
-                io.output[i] = idModule[i].IO.outValue[0];
+                io.output[i] = idModule[i].IO.outValue[0].Cast<UInt>();
             }
 
             //if (io.en[0]) {

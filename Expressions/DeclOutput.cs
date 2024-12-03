@@ -7,10 +7,9 @@ namespace IntelliVerilog.Core.Expressions {
         public override GeneralizedPortFlags Flags
             => GeneralizedPortFlags.Placeholder | GeneralizedPortFlags.WidthSpecified |
             GeneralizedPortFlags.SingleComponent | GeneralizedPortFlags.DeclPort;
-        public override RightValue<Bool> this[int index] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-        public override RightValue<TData> this[Range range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+        public override RightValue<TData> this[params GenericIndex[] range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
-        public DeclOutput(TData type) : base(type) { }
+        public DeclOutput(TData type) : base(type, new([(int)type.WidthBits])) { }
 
         public IUntypedPort CreateInternalPlaceholder(IoBundle parent, IoMemberInfo member) {
             var currentComponent = parent;

@@ -4,8 +4,8 @@ using System;
 namespace IntelliVerilog.Core.Expressions {
     public class InvertedInternalOutput<TData> : RightValue<TData>, IInvertedOutput where TData : DataType,IDataType<TData> {
         public IoComponent InternalOut { get; }
-        public Range SelectedRange { get; }
-        public InvertedInternalOutput(TData type,IoComponent output, Range range) : base(type, type.DefaultAlgebra) {
+        public GenericIndices SelectedRange { get; }
+        public InvertedInternalOutput(TData type,IoComponent output, GenericIndices range) : base(type, output.Shape, type.DefaultAlgebra) {
             InternalOut = output;
             SelectedRange = range;
         }

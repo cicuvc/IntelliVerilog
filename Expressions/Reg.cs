@@ -17,7 +17,7 @@ namespace IntelliVerilog.Core.Expressions {
     public class RegRightValueWrapper<TData> : RightValue<TData>, IRegRightValueWrapper where TData : DataType, IDataType<TData> {
         public Reg<TData> RegDef { get; }
         public Reg UntyedReg => RegDef;
-        public RegRightValueWrapper(Reg<TData> Reg) : base((TData)Reg.UntypedType) {
+        public RegRightValueWrapper(Reg<TData> Reg) : base((TData)Reg.UntypedType, Reg.Shape) {
             RegDef = Reg;
         }
         public override void EnumerateSubNodes(Action<AbstractValue> callback) { }
@@ -33,7 +33,7 @@ namespace IntelliVerilog.Core.Expressions {
         public IOverlappedObjectDesc Descriptor { get; set; }
         public abstract AbstractValue UntypedRValue { get; }
 
-        public Reg(DataType type, ClockDomain? clockDom):base(type, clockDom) {
+        public Reg(DataType type, ValueShape shape ,ClockDomain? clockDom):base(type, shape, clockDom) {
             var defaultName = $"R{Utility.GetRandomStringHex(16)}";
             Descriptor = new RegisterOverlappedDesc(defaultName, type) { this };
 
@@ -45,36 +45,36 @@ namespace IntelliVerilog.Core.Expressions {
             componentModel.AddEntity(this);
             componentModel.RegisterClockDomain(ClockDom);
         }
-        public static ref Reg<TData> New<TData>(TData type, ClockDomain? clockDom = null, bool noClockDomainCheck = false) where TData : DataType, IDataType<TData> {
+        public static ref Reg<TData> New<TData>(TData type, ReadOnlySpan<int> shape = default,ClockDomain? clockDom = null, bool noClockDomainCheck = false) where TData : DataType, IDataType<TData> {
             clockDom ??= ScopedLocator.GetService<ClockDomain>();
             Debug.Assert(clockDom != null);
 
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
             var componentModel = context.GetComponentBuildingModel(throwOnNull: true)!;
 
-            var Reg = new Reg<TData>(type, clockDom) { 
+            var Reg = new Reg<TData>(type,new(shape.ToArray().Append((int)type.WidthBits).ToArray()), clockDom) { 
                 NoClockDomainCheck = noClockDomainCheck
             };
 
             var pointerStorage = componentModel.RegisterReg(Reg);
             return ref Unsafe.As<IReferenceTraceObject, Reg<TData>>(ref pointerStorage.Pointer);
         }
-        public static ref Reg<TData> Next<TData>(TData type, RightValue<TData> inputValue ,ClockDomain? clockDom = null, bool noClockDomainCheck = false) where TData : DataType, IDataType<TData> {
-            ref var register = ref New(type, clockDom, noClockDomainCheck);
+        public static ref Reg<TData> Next<TData>(TData type, RightValue<TData> inputValue,ClockDomain? clockDom = null, bool noClockDomainCheck = false) where TData : DataType, IDataType<TData> {
+            ref var register = ref New(type, inputValue.Shape.AsSpan(), clockDom, noClockDomainCheck);
 
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
             var componentModel = context.GetComponentBuildingModel(throwOnNull: true)!;
 
             var returnAddressTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
             var returnAddress = returnAddressTracker.TrackReturnAddress(inputValue, paramIndex: 3);
-            componentModel.AssignSubModuleConnections(register, inputValue, .., returnAddress);
+            componentModel.AssignSubModuleConnections(register, inputValue, new(Array.Empty<GenericIndex>()), returnAddress);
 
             return ref register!;
         }
 
     }
     public class ExpressedReg<TData> : Reg<TData>, IExpressionAssignedIoType where TData : DataType, IDataType<TData> {
-        public ExpressedReg(RightValue<TData> expression, ClockDomain? clockDom) : base(expression.TypedType, clockDom) {
+        public ExpressedReg(RightValue<TData> expression, ClockDomain? clockDom) : base(expression.TypedType, expression.Shape,clockDom) {
             Expression = expression;
         }
 
@@ -98,36 +98,14 @@ namespace IntelliVerilog.Core.Expressions {
             }
         }
         public override AbstractValue UntypedRValue => RValue;
-        public Reg(TData type, ClockDomain? clockDom) : base(type, clockDom) {
+        public Reg(TData type, ValueShape shape,ClockDomain? clockDom) : base(type, shape, clockDom) {
         }
 
         public static implicit operator Reg<TData>(RightValue<TData> value) {
             return new ExpressedReg<TData>(value, InvalidClockDomain.Instance);
         }
-        public RightValue<Bool> this[uint index] {
-            get => RValue[index];
-            set {
-                throw new NotImplementedException();
-            }
-        }
 
-        public RightValue<Bool> this[int index] {
-            get => RValue[index];
-            set {
-                var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
-                var returnAddress = returnTracker.TrackReturnAddress(this);
-                var analysisContext = IntelliVerilogLocator.GetService<AnalysisContext>()!;
-                var currentModel = analysisContext.CurrentComponent?.InternalModel as ComponentBuildingModel;
-
-                if (currentModel == null) return;
-
-                var cast = new CastExpression<TData>((TData)UntypedType.CreateWithWidth(1), value);
-                var wrapper = new ExpressedReg<TData>(cast, ClockDom);
-
-                currentModel.AssignSubModuleConnections(this, wrapper, index..(index + 1), returnAddress);
-            }
-        }
-        public RightValue<TData> this[Range range] {
+        public RightValue<TData> this[params GenericIndex[] range] {
             get => RValue[range];
             set {
                 var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
@@ -139,7 +117,7 @@ namespace IntelliVerilog.Core.Expressions {
 
                 var wrapper = new ExpressedReg<TData>(value, ClockDom);
 
-                currentModel.AssignSubModuleConnections(this, wrapper, range, returnAddress);
+                currentModel.AssignSubModuleConnections(this, wrapper, new(range), returnAddress);
             }
         }
 

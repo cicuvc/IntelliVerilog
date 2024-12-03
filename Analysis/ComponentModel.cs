@@ -11,9 +11,52 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace IntelliVerilog.Core.Analysis {
+    [StructLayout(LayoutKind.Explicit)]
+    public struct SpecifiedIndex:IEquatable<SpecifiedIndex> {
+        [FieldOffset(0)]
+        private GenericIndexFlags m_Flag;
+        [FieldOffset(4)]
+        private SpecifiedRange m_Range;
+        [FieldOffset(4)]
+        private GCHandle m_Handle;
+        public GenericIndexFlags Flags => m_Flag;
+        public AbstractValue? IndexValue {
+            get => m_Flag == GenericIndexFlags.ValueIndex ? (AbstractValue?)m_Handle.Target : null;
+        }
+        public SpecifiedRange Range => m_Range;
+        public int BitWidth {
+            get => m_Flag == GenericIndexFlags.RangeIndex ? m_Range.BitWidth : 1;
+        }
+        public SpecifiedIndex(GenericIndexFlags flag) {
+            m_Flag = flag;
+        }
+        public SpecifiedIndex(int singleIndex) {
+            m_Flag = GenericIndexFlags.SingleIndex;
+            m_Range = new(singleIndex, singleIndex+1);
+        }
+        public SpecifiedIndex(SpecifiedRange range) {
+            m_Flag = GenericIndexFlags.RangeIndex;
+            m_Range = range;
+        }
+        public GenericIndex ToGenericIndex() {
+            if (m_Flag == GenericIndexFlags.RangeIndex) return new(m_Range.ToRange(), GenericIndexFlags.RangeIndex);
+            return new(IndexValue ?? throw new NullReferenceException());
+        }
+        public SpecifiedIndex(AbstractValue index) {
+            m_Flag = GenericIndexFlags.ValueIndex;
+            m_Handle = index.WeakRef;
+        }
+
+        public bool Equals(SpecifiedIndex other) {
+            if (other.m_Flag != m_Flag) return false;
+            if (other.m_Handle != m_Handle) return false;
+            return true;
+        }
+    }
     public struct SpecifiedRange {
         public int Left;
         public int Right;
@@ -199,7 +242,7 @@ namespace IntelliVerilog.Core.Analysis {
 
             ModelName = $"{ReflectionHelpers.DenseTypeName(componentType)}_{Utility.GetArraySignature(instParameters)}${ScopedLocator.GetService<ClockDomain>()?.Name ?? "<no domain!!>"}";
         }
-        public abstract IEnumerable<(AbstractValue assignValue, SpecifiedRange range)> QueryAssignedSubComponentIoValues(IUntypedConstructionPort declComponent, ComponentBase subModule);
+        public abstract IEnumerable<(AbstractValue assignValue, SpecifiedIndices range)> QueryAssignedSubComponentIoValues(IUntypedConstructionPort declComponent, ComponentBase subModule);
     
         public IEnumerable<ComponentBase> GetSubComponents() {
             return OverlappedObjects.Where(e => e.Value is SubComponentDesc).SelectMany(e => (IEnumerable<ComponentBase>)e.Value);
@@ -236,7 +279,7 @@ namespace IntelliVerilog.Core.Analysis {
         public AbstractValue InternalValue { get; }
         public IOverlappedObjectDesc Descriptor { get; set; }
 
-        public NamedStageExpression(AbstractValue internalValue, SubValueStageDesc desc) : base((TData)internalValue.Type, internalValue.Algebra) {
+        public NamedStageExpression(AbstractValue internalValue, SubValueStageDesc desc) : base((TData)internalValue.Type, internalValue.Shape, internalValue.Algebra) {
             InternalValue = internalValue;
             Descriptor = desc;
         }
@@ -275,6 +318,7 @@ namespace IntelliVerilog.Core.Analysis {
     public abstract class RegisterDesc:IAssignableValue {
         protected RegisterValue? m_RightValueCache;
         public DataType UntypedType { get; }
+        public ValueShape Shape { get; }
         public bool IsCombination { get; }
         public RegisterValue RVaule {
             get {
@@ -285,16 +329,17 @@ namespace IntelliVerilog.Core.Analysis {
             }
         }
         public Func<string> Name { get; set; } = () => "<unnamed>";
-        public RegisterDesc(DataType type, bool isComb = false) {
+        public RegisterDesc(DataType type, ValueShape shape, bool isComb = false) {
             UntypedType = type;
             IsCombination = isComb;
+            Shape = shape;
         }
 
         public abstract AssignmentInfo CreateAssignmentInfo();
     }
     public class CombPseudoRegister : RegisterDesc {
         public IAssignableValue BackAssignable { get; }
-        public CombPseudoRegister(IAssignableValue assignable) : base(assignable.UntypedType, true) {
+        public CombPseudoRegister(IAssignableValue assignable) : base(assignable.UntypedType, assignable.Shape, true) {
             BackAssignable = assignable;
         }
 
@@ -305,7 +350,7 @@ namespace IntelliVerilog.Core.Analysis {
     public abstract class ClockDrivenRegister : RegisterDesc {
         public ClockDomain ClockDom { get; }
         public bool NoClockDomainCheck { get; set; } = false;
-        public ClockDrivenRegister(DataType type, ClockDomain? clockDomain) : base(type, false) {
+        public ClockDrivenRegister(DataType type, ValueShape shape,ClockDomain? clockDomain) : base(type,shape ,false) {
             ClockDom = clockDomain ?? ScopedLocator.GetService<ClockDomain>() ?? throw new Exception("Unknown clock domain");
         }
         public override AssignmentInfo CreateAssignmentInfo() {
@@ -313,7 +358,7 @@ namespace IntelliVerilog.Core.Analysis {
         }
     }
     public class RegisterValue : AbstractValue {
-        public RegisterValue(RegisterDesc baseRegister) : base(baseRegister.UntypedType) {
+        public RegisterValue(RegisterDesc baseRegister) : base(baseRegister.UntypedType, baseRegister.Shape) {
             BaseRegister = baseRegister;
         }
 
@@ -329,8 +374,12 @@ namespace IntelliVerilog.Core.Analysis {
     public interface ILazyNamedObject {
         Func<string> Name { get; set; }
     }
-    public interface IAssignableValue: ILazyNamedObject {
+    public interface IShapedValue {
+        ValueShape Shape { get; }
+    }
+    public interface IAssignableValue: ILazyNamedObject, IShapedValue {
         DataType UntypedType { get; }
+
 
         AssignmentInfo CreateAssignmentInfo();
     }
@@ -338,7 +387,7 @@ namespace IntelliVerilog.Core.Analysis {
     public interface IBasicAssignmentTerm {
         IAssignableValue UntypedLeftValue { get; }
         AbstractValue RightValue { get; set; }
-        SpecifiedRange SelectedRange { get; }
+        SpecifiedIndices SelectedRange { get; }
         BehaviorDesc ToBeahviorDesc(IAssignableValue? redirectedLeftValue);
     }
     public abstract class AssignmentInfo : List<IBasicAssignmentTerm> {
@@ -354,7 +403,7 @@ namespace IntelliVerilog.Core.Analysis {
         public override bool RegisterPromotable => true;
         public IoPortAssignmentInfo(IAssignableValue leftValue) : base(leftValue) {
         }
-        public virtual void AssignPort(AbstractValue value, SpecifiedRange range) {
+        public virtual void AssignPort(AbstractValue value, SpecifiedIndices range) {
             Add(new PrimaryAssignment(UntypedLeftValue, value, range, nint.Zero));
         }
     }
@@ -363,7 +412,7 @@ namespace IntelliVerilog.Core.Analysis {
         public override bool RegisterPromotable => true;
         public WireAssignmentInfo(IAssignableValue leftValue) : base(leftValue) {
         }
-        public virtual void AssignPort(AbstractValue value, SpecifiedRange range) {
+        public virtual void AssignPort(AbstractValue value, SpecifiedIndices range) {
             Add(new PrimaryAssignment(UntypedLeftValue, value, range, nint.Zero));
         }
     }
@@ -371,7 +420,7 @@ namespace IntelliVerilog.Core.Analysis {
         public override bool RegisterPromotable => false;
         public RegAssignmentInfo(ClockDrivenRegister register) : base(register) {
         }
-        public virtual void AssignPort(AbstractValue value, SpecifiedRange range) {
+        public virtual void AssignPort(AbstractValue value, SpecifiedIndices range) {
             Add(new PrimaryAssignment(UntypedLeftValue, value, range, nint.Zero));
         }
     }
@@ -434,12 +483,19 @@ namespace IntelliVerilog.Core.Analysis {
             return GetEnumerator();
         }
     }
-    public class SubValueStageDesc:List<INamedStageExpression>, IOverlappedObjectDesc {
+    public interface ISubValueStageDesc: IOverlappedObjectDesc {
+        ValueShape SingleInstanceShape { get; }
+    }
+    public class SubValueStageDesc:List<INamedStageExpression>, ISubValueStageDesc,IWireLike {
         public string InstanceName { get; set; }
         public DataType UntypedType { get; }
-        public SubValueStageDesc(string instanceName,DataType type) {
+        public ValueShape SingleInstanceShape { get; }
+        public Func<string> Name { get; set; }
+        public SubValueStageDesc(string instanceName, ValueShape singleInstanceShape,DataType type) {
             InstanceName = instanceName;
             UntypedType = type;
+            SingleInstanceShape = singleInstanceShape;
+            Name = () => InstanceName;
         }
         IOverlappedObject IReadOnlyList<IOverlappedObject>.this[int index] => this[index];
         IEnumerator<IOverlappedObject> IEnumerable<IOverlappedObject>.GetEnumerator() {
@@ -490,7 +546,7 @@ namespace IntelliVerilog.Core.Analysis {
                 if (i is PrimaryAssignment assignment) {
                     if (assignedPorts.ContainsKey(assignment.LeftValue)) {
                         var bitset = assignedPorts[assignment.LeftValue];
-                        bitset[assignment.SelectedRange] = BitRegionState.True;
+                        assignment.SelectedRange.FillBitset(bitset);
                     }
                 }
             }
@@ -533,7 +589,8 @@ namespace IntelliVerilog.Core.Analysis {
                             assignmentInfo.Clear();
 
                             var totalBits = oldLeftValue.UntypedType.WidthBits;
-                            assignmentInfo.Add(new PrimaryAssignment(oldLeftValue, assignmentInfo.PromotedRegister.RVaule, new(.., (int)totalBits), nint.Zero));
+                            var selection = SpecifiedIndices.FullIndices(oldLeftValue.Shape);
+                            assignmentInfo.Add(new PrimaryAssignment(oldLeftValue, assignmentInfo.PromotedRegister.RVaule, selection, nint.Zero));
                         }
                         primaryAssign.LeftValue = assignmentInfo.PromotedRegister;
                     }
@@ -573,7 +630,7 @@ namespace IntelliVerilog.Core.Analysis {
                             var totalBits = (assignment.LeftValue).UntypedType.WidthBits;
                             combAlwaysPortList.Add(assignment.LeftValue, new((int)totalBits));
                         }
-                        combAlwaysPortList[assignment.LeftValue][assignment.SelectedRange] = BitRegionState.True;
+                        assignment.SelectedRange.FillBitset(combAlwaysPortList[assignment.LeftValue]);
                     }
                     
                 }
@@ -597,7 +654,7 @@ namespace IntelliVerilog.Core.Analysis {
                     var bitset = new Bitset(totalBits);
 
                     foreach(var j in assignments) {
-                        bitset[j.SelectedRange] = BitRegionState.True;
+                        j.SelectedRange.FillBitset(bitset);
                     }
                     if (bitset[new SpecifiedRange(0, totalBits)] != BitRegionState.True) {
                         throw new NullReferenceException($"Incomplete drive for {wireObject.Name()}");
@@ -690,7 +747,7 @@ namespace IntelliVerilog.Core.Analysis {
             }
             value.EnumerateSubNodes(callback);
         }
-        protected void AssignOutputExpression(IoComponent internalLeftValue, AbstractValue rightValue, SpecifiedRange range){
+        protected void AssignOutputExpression(IoComponent internalLeftValue, AbstractValue rightValue, SpecifiedIndices range){
             if(internalLeftValue is IAssignableValue internalOutput) {
                 if (!m_GenericAssignments.ContainsKey(internalOutput)) {
                     m_GenericAssignments.Add(internalOutput, new IoPortAssignmentInfo(internalOutput));
@@ -709,9 +766,13 @@ namespace IntelliVerilog.Core.Analysis {
  
         public AbstractValue AssignLocalSignalVariable(Type dataType, string name, AbstractValue rightValue) {
             if (!m_SubComponentObjects.ContainsKey(name))
-                m_SubComponentObjects.Add(name, new SubValueStageDesc(name,rightValue.Type));
+                m_SubComponentObjects.Add(name, new SubValueStageDesc(name,rightValue.Shape,rightValue.Type));
 
-            var desc = m_SubComponentObjects[name];
+            var desc = (ISubValueStageDesc)m_SubComponentObjects[name];
+
+            if (!desc.SingleInstanceShape.Equals(rightValue.Shape)) {
+                throw new InvalidOperationException("Staged variable shape changed");
+            }
 
             var namedType = typeof(NamedStageExpression<>).MakeGenericType(dataType);
             var stagedValue = (INamedStageExpression)namedType.GetConstructor(new Type[] {typeof(AbstractValue),typeof(SubValueStageDesc) })!
@@ -775,25 +836,25 @@ namespace IntelliVerilog.Core.Analysis {
                         var fakeClock = new ClockDomainWire(clkDomain, ClockDomainSignal.Clock);
                         RegisterWire(fakeClock);
                         
-                        AssignSubModuleConnections(fakeClock, clkDomain.Clock, .., nint.Zero);
+                        AssignSubModuleConnections(fakeClock, clkDomain.Clock, new(..), nint.Zero);
                     }
                     if (!(clkDomain.RawReset is null)) {
                         var fakeClock = new ClockDomainWire(clkDomain, ClockDomainSignal.Reset);
                         RegisterWire(fakeClock);
 
-                        AssignSubModuleConnections(fakeClock, clkDomain.RawReset, .., nint.Zero);
+                        AssignSubModuleConnections(fakeClock, clkDomain.RawReset, new(..), nint.Zero);
                     }
                     if (!(clkDomain.RawSyncReset is null)) {
                         var fakeClock = new ClockDomainWire(clkDomain, ClockDomainSignal.SyncReset);
                         RegisterWire(fakeClock);
 
-                        AssignSubModuleConnections(fakeClock, clkDomain.RawSyncReset, .., nint.Zero);
+                        AssignSubModuleConnections(fakeClock, clkDomain.RawSyncReset, new(..), nint.Zero);
                     }
                     if (!(clkDomain.RawClockEnable is null)) {
                         var fakeClock = new ClockDomainWire(clkDomain, ClockDomainSignal.ClockEnable);
                         RegisterWire(fakeClock);
 
-                        AssignSubModuleConnections(fakeClock, clkDomain.RawClockEnable, .., nint.Zero);
+                        AssignSubModuleConnections(fakeClock, clkDomain.RawClockEnable, new(..), nint.Zero);
                     }
                 }
             }
@@ -829,7 +890,7 @@ namespace IntelliVerilog.Core.Analysis {
         }
 
 
-        public void AssignSubModuleConnections(IAssignableValue leftValue, object rightValue, Range range, nint returnAddress) {
+        public void AssignSubModuleConnections(IAssignableValue leftValue, object rightValue, GenericIndices range, nint returnAddress) {
             if(leftValue is IoBundle bundle) {
                 var ioAux = IoComponentProbableHelpers.QueryProbeAuxiliary(leftValue.GetType());
                 foreach (var i in ioAux.GetIoMembers(leftValue.GetType())) {
@@ -846,7 +907,7 @@ namespace IntelliVerilog.Core.Analysis {
             if(leftValue is Reg register) {
                 var rightExpression = ResolveRightValue(rightValue);
                 var bits = (int)register.UntypedType.WidthBits;
-                var specRange = new SpecifiedRange(range, bits);
+                var specRange = range.ResolveSelectionRange(register.Shape);
                 Debug.Assert(rightExpression != null);
 
                 Debug.Assert(m_Registers.Contains(register));
@@ -861,7 +922,7 @@ namespace IntelliVerilog.Core.Analysis {
             if (leftValue is Wire wireLhs) {
                 var rightExpression = ResolveRightValue(rightValue);
                 var bits = (int)wireLhs.UntypedType.WidthBits;
-                var specRange = new SpecifiedRange(range, bits);
+                var specRange = range.ResolveSelectionRange(wireLhs.Shape);
 
                 Debug.Assert(rightExpression != null);
 
@@ -904,12 +965,12 @@ namespace IntelliVerilog.Core.Analysis {
                             var wireSet = (SubComponentPortAssignmentInfo)m_GenericAssignments[leftAssignable];
 
                             var bits = (int)wireSet.UntypedLeftValue.UntypedType.WidthBits;
-                            var specRange = new SpecifiedRange(range, bits);
+                            var specRange = range.ResolveSelectionRange(wireSet.UntypedLeftValue.Shape);
 
                             if (!rightExpression.Type.IsWidthSpecified) {
-                                rightExpression.Type = rightExpression.Type.CreateWithWidth((uint)specRange.BitWidth);
+                                rightExpression.Type = rightExpression.Type.CreateWithWidth((uint)specRange.BaseShape.Last());
                             }
-                            if (specRange.BitWidth != rightExpression.Type.WidthBits) {
+                            if (!specRange.IsCompatibleShape(rightExpression.Shape)) {
                                 throw new InvalidOperationException("Bit width mismatch");
                             }
 
@@ -940,14 +1001,15 @@ namespace IntelliVerilog.Core.Analysis {
                             if (rightExpression is IInvertedOutput invertedOutput) {
                                 var realLhs = (IUntypedConstructionPort)invertedOutput.InternalOut;
 
+                                var assignableLhs = (IAssignableValue)invertedOutput.InternalOut;
 
-                                var specRange = new SpecifiedRange(invertedOutput.SelectedRange, (int)realLhs.UntypedType.WidthBits);
+                                var specRange = invertedOutput.SelectedRange.ResolveSelectionRange(assignableLhs.Shape);  
 
                                 if (!realLhs.UntypedType.IsWidthSpecified) {
-                                    realLhs.UntypedType = realLhs.UntypedType.CreateWithWidth((uint)specRange.BitWidth);
+                                    realLhs.UntypedType = realLhs.UntypedType.CreateWithWidth((uint)specRange.BaseShape.Last());
                                 }
 
-                                if (specRange.BitWidth != ioComponentLhs.UntypedRValue.Type.WidthBits) {
+                                if (!specRange.IsCompatibleShape(ioComponentLhs.UntypedRValue.Shape)) {
                                     throw new InvalidOperationException("Bit width mismatch");
                                 }
                                 var wireObject = (IWireLike)invertedOutput.InternalOut;
@@ -971,10 +1033,12 @@ namespace IntelliVerilog.Core.Analysis {
                         if (ioComponentLhs.Flags.HasFlag(GeneralizedPortFlags.InternalPort)) { // InternalOutput
                             // assign outputs
                             var rightExpression = ResolveRightValue(rightValue);
+                            
 
                             Debug.Assert(rightExpression != null);
 
                             var lhsType = ((IDataTypeSpecifiedPort)ioComponentLhs).UntypedType;
+                            var lhsAssignable = ((IAssignableValue)ioComponentLhs);
                             
                             if (!rightExpression.Type.IsWidthSpecified && !lhsType.IsWidthSpecified) {
                                 throw new Exception("Unable to infer bit width");
@@ -984,12 +1048,12 @@ namespace IntelliVerilog.Core.Analysis {
                             }
 
                             // Here we make sure lhs width has benn completely bounded
-                            var lhsRange = new SpecifiedRange(range, (int)lhsType.WidthBits);
+                            var lhsRange = range.ResolveSelectionRange(lhsAssignable.Shape);
                             if (!rightExpression.Type.IsWidthSpecified) {
-                                rightExpression.Type = rightExpression.Type.CreateWithWidth((uint)lhsRange.BitWidth);
+                                rightExpression.Type = rightExpression.Type.CreateWithWidth((uint)lhsRange.BaseShape.Last());
                             }
     
-                            if (lhsRange.BitWidth != rightExpression.Type.WidthBits) {
+                            if (!lhsRange.IsCompatibleShape(rightExpression.Shape)) {
                                 throw new InvalidOperationException("Bit width mismatch");
                             }
 
@@ -1024,7 +1088,7 @@ namespace IntelliVerilog.Core.Analysis {
             }
             throw new NotImplementedException();
         }
-        public override IEnumerable<(AbstractValue assignValue, SpecifiedRange range)> QueryAssignedSubComponentIoValues(IUntypedConstructionPort declComponent, ComponentBase subModule) {
+        public override IEnumerable<(AbstractValue assignValue, SpecifiedIndices range)> QueryAssignedSubComponentIoValues(IUntypedConstructionPort declComponent, ComponentBase subModule) {
             var componentDesc = (SubComponentDesc)(subModule).Descriptor;
             return m_GenericAssignments.Where((e) => {
                 if(e.Key is IUntypedConstructionPort port) {

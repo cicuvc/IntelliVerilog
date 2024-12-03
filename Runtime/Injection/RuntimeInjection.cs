@@ -142,6 +142,7 @@ namespace IntelliVerilog.Core.Runtime.Injection {
             //Console.WriteLine(method.Name);
 
             if (method != null) {
+                if(method.Name.Contains("Hello")) Debugger.Break();
                 foreach (var i in m_CompileCallbacks) {
                     if (i.Match(method, (IntPtr)methodInfo, out var compilationContext)) {
                         var result = i.CompileMethod(compilationContext, method, pthis, corinfo, methodInfo, flags, native, size);

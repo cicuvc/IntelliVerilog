@@ -1,10 +1,11 @@
-﻿using IntelliVerilog.Core.DataTypes;
+﻿using IntelliVerilog.Core.Analysis;
+using IntelliVerilog.Core.DataTypes;
 using IntelliVerilog.Core.Expressions.Algebra;
 using System;
 
 namespace IntelliVerilog.Core.Expressions {
     public class DummyClockReset : RightValue<Bool> {
-        public DummyClockReset() : base(Bool.CreateDefault()) {
+        public DummyClockReset() : base(Bool.CreateDefault(), new([1])) {
         }
 
         public override void EnumerateSubNodes(Action<AbstractValue> callback) {
@@ -25,7 +26,7 @@ namespace IntelliVerilog.Core.Expressions {
                 //IoComponent.ty
             }
         }
-        public IoRightValueWrapper(IUntypedConstructionPort ioPort, IAlg? algebra = null) : base((TData)ioPort.UntypedType, algebra) {
+        public IoRightValueWrapper(IUntypedConstructionPort ioPort, IAlg? algebra = null) : base((TData)ioPort.UntypedType, (ioPort).Shape, algebra) {
             IoComponent = ioPort;
         }
 

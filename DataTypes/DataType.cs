@@ -18,10 +18,12 @@ namespace IntelliVerilog.Core.DataTypes {
     public abstract class DataType :IEquatable<DataType> {
         public bool IsDeclaration { get; }
         public uint WidthBits { get; }
+        public ValueShape WithShape { get; }
         public bool IsWidthSpecified => WidthBits != uint.MaxValue;
-        public DataType(uint bits, bool isDecl = true) {
+        public DataType(uint bits, int[]? shape = null,bool isDecl = true) {
             WidthBits = bits;
             IsDeclaration = isDecl;
+            WithShape = new(shape ?? Array.Empty<int>());
         }
         public abstract IAlg DefaultAlgebra { get; }
         public abstract DataType CreateWithWidth(uint bits);
@@ -36,18 +38,18 @@ namespace IntelliVerilog.Core.DataTypes {
         }
     }
     public class Bool : DataType, IDataType<Bool> {
-        public Bool(bool isDecl = true) : base(1, isDecl) {
+        public Bool() : base(1) {
         }
 
         public override IAlg DefaultAlgebra => BoolAlgebra.Instance;
 
         public static Bool CreateDefault() => new();
         public static Bool CreateWidth(uint bits) {
-            Debug.Assert(bits == 0);
+            Debug.Assert(bits == 1);
             return new Bool();
         }
         public override DataType CreateWithWidth(uint bits) {
-            Debug.Assert(bits == 0);
+            Debug.Assert(bits == 1);
             return new Bool();
         }
     }
@@ -62,7 +64,7 @@ namespace IntelliVerilog.Core.DataTypes {
         }
     }
     public class UInt : DataType, IDataType<UInt> {
-        public UInt(uint bits) : base(bits) {
+        public UInt(uint bits, int[]? shape = null) : base(bits, shape) {
         }
 
         public static UInt CreateDefault() {
@@ -80,8 +82,8 @@ namespace IntelliVerilog.Core.DataTypes {
         public override IAlg DefaultAlgebra => UIntAlgebra.Instance;
     }
     public static class UIntExtensions {
-        public static UInt Bits(this uint x) {
-            return new(x);
+        public static UInt Bits(this uint x, int[]? shape = null) {
+            return new(x, shape);
         }
         public static RightValue<UInt> Const(this uint x) {
             return new UIntLiteral(x);

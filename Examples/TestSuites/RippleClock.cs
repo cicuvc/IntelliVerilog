@@ -18,7 +18,7 @@ namespace IntelliVerilog.Core.Examples.TestSuites {
             var defaultDom = ScopedLocator.GetService<ClockDomain>()!;
 
 
-            var subDom = new ClockDomain("down", prescaler[0]);
+            var subDom = new ClockDomain("down", prescaler[0].Cast<Bool>());
             subDom.Reset = defaultDom.Reset;
 
             var dataReg = new DFF(15, subDom);

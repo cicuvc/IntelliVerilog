@@ -36,7 +36,7 @@ namespace IntelliVerilog.Core.Analysis {
 
             if (currentModel == null || (oldValue == null)) return true;
 
-            currentModel.AssignSubModuleConnections((IAssignableValue)oldValue, newValue, Range.All, returnAddress);
+            currentModel.AssignSubModuleConnections((IAssignableValue)oldValue, newValue, new(Array.Empty<GenericIndex>()), returnAddress);
 
             return !(oldValue is IoBundle);
         }
@@ -104,7 +104,7 @@ namespace IntelliVerilog.Core.Analysis {
                 var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
                 var returnAddress = returnTracker.TrackReturnAddress(module, paramIndex: 3);
 
-                buildingModel.AssignSubModuleConnections(assignable, value, .., returnAddress);
+                buildingModel.AssignSubModuleConnections(assignable, value, new(Array.Empty<GenericIndex>()), returnAddress);
             }
             if(target is AbstractValue genericExpr) {
                 genericExpr = genericExpr.UnwrapCast();
@@ -118,7 +118,7 @@ namespace IntelliVerilog.Core.Analysis {
                         var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
                         var returnAddress = returnTracker.TrackReturnAddress(module, paramIndex: 3);
 
-                        buildingModel.AssignSubModuleConnections(lhs, value, bitSelection.SelectedRange.ToRange(), returnAddress);
+                        buildingModel.AssignSubModuleConnections(lhs, value, bitSelection.SelectedRange.ToGenericIndices(), returnAddress);
                         return;
                     } 
                     
@@ -143,7 +143,7 @@ namespace IntelliVerilog.Core.Analysis {
                         var leftValue = (IAssignableValue)j.GetValue(i);
                         var rightValue = fieldInfo.GetValue(box);
                         if (rightValue != null) {
-                            buildingModel.AssignSubModuleConnections(leftValue, rightValue, .., returnAddress);
+                            buildingModel.AssignSubModuleConnections(leftValue, rightValue, new(Array.Empty<GenericIndex>()), returnAddress);
                         }
                     }
                     return;
@@ -156,7 +156,7 @@ namespace IntelliVerilog.Core.Analysis {
                     var leftValue = (IAssignableValue)j.GetValue(module);
                     var rightValue = fieldInfo.GetValue(box);
                     if (rightValue != null) {
-                        buildingModel.AssignSubModuleConnections(leftValue, rightValue, .., returnAddress);
+                        buildingModel.AssignSubModuleConnections(leftValue, rightValue, new(Array.Empty<GenericIndex>()), returnAddress);
                     }
                 }
                 return;
@@ -177,7 +177,7 @@ namespace IntelliVerilog.Core.Analysis {
                 var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
                 var returnAddress = returnTracker.TrackReturnAddress(newValue, paramIndex : 2);
 
-                buildingModel.AssignSubModuleConnections((IAssignableValue)oldValue, newValue, Range.All, returnAddress);
+                buildingModel.AssignSubModuleConnections((IAssignableValue)oldValue, newValue, new(Array.Empty<GenericIndex>()), returnAddress);
             } else {
                 FieldAccessorRegistry.SetField(fieldInfo, ref tupleRef, newValue);
             }

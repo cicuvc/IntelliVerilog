@@ -28,7 +28,7 @@ namespace IntelliVerilog.Core.Expressions {
 
         public IUntypedConstructionPort InternalPort { get; }
 
-        public override RightValue<TData> this[Range range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+        public override RightValue<TData> this[params GenericIndex[] range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
         public string GetDefaultName() {
             var path = Location;
             var portName = $"{string.Join('_', path.Path.Select(e => e.Name))}_{path.Name}";
@@ -39,7 +39,7 @@ namespace IntelliVerilog.Core.Expressions {
             throw new NotImplementedException();
         }
 
-        public ExternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member, IUntypedConstructionPort internalPort) : base(dataType) {
+        public ExternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member, IUntypedConstructionPort internalPort) : base(dataType, new([(int)dataType.WidthBits])) {
             PortMember = member; ;
             Parent = parent;
             Component = root;
@@ -47,21 +47,6 @@ namespace IntelliVerilog.Core.Expressions {
             InternalPort = internalPort;
             Name = GetDefaultName;
         }
-        public override RightValue<Bool> this[int index] { 
-            get {
-                return RValue[index];
-            }
-            set {
-                var analysisContext = IntelliVerilogLocator.GetService<AnalysisContext>()!;
-                var currentModel = analysisContext.CurrentComponent?.InternalModel as ComponentBuildingModel;
 
-                if (currentModel == null) return;
-
-
-                throw new NotImplementedException();
-
-                //currentModel.AssignExpression(this, value, index..(index + 1));
-            }
-        }
     }
 }

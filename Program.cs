@@ -1,5 +1,6 @@
 ﻿using Iced.Intel;
 using IntelliVerilog.Core.Analysis;
+using IntelliVerilog.Core.Analysis.TensorLike;
 using IntelliVerilog.Core.CodeGen;
 using IntelliVerilog.Core.CodeGen.Verilog;
 using IntelliVerilog.Core.Components;
@@ -20,9 +21,12 @@ using SharpUtilities;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Diagnostics.Contracts;
 using System.IO;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Net;
 using System.Numerics;
 using System.Reflection;
@@ -33,6 +37,8 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+
+using static IntelliVerilog.Core.GenericIndex;
 
 namespace IntelliVerilog.Core;
 public class BehaviorDesc {
@@ -50,11 +56,11 @@ public class PrimaryExit: BehaviorDesc { }
 public class PrimaryAssignment : PrimaryOp,IBasicAssignmentTerm {
     public IAssignableValue LeftValue { get; set; }
     public AbstractValue RightValue { get; set; }
-    public SpecifiedRange SelectedRange { get; set; }
+    public SpecifiedIndices SelectedRange { get; set; }
 
     public IAssignableValue UntypedLeftValue => (IAssignableValue)LeftValue;
 
-    public PrimaryAssignment(IAssignableValue leftValue, AbstractValue rightValue, SpecifiedRange range, nint returnAddress) : base(returnAddress) {
+    public PrimaryAssignment(IAssignableValue leftValue, AbstractValue rightValue, SpecifiedIndices range, nint returnAddress) : base(returnAddress) {
         LeftValue = leftValue;
         RightValue = rightValue;
         SelectedRange = range;
@@ -368,7 +374,7 @@ public class BehaviorContext {
             throw new UnreachableException("What?");
         }
     }
-    public void NotifyAssignment(nint returnAddress, IAssignableValue leftValue, AbstractValue rightValue, SpecifiedRange range) {
+    public void NotifyAssignment(nint returnAddress, IAssignableValue leftValue, AbstractValue rightValue, SpecifiedIndices range) {
         if (UnwindBranches(e => {
             if (e is PrimaryAssignment assignment) {
                 return assignment.ReturnAddress == returnAddress && 
@@ -478,7 +484,7 @@ public static class GenerationHelpers {
     public static void WriteGroupedCodeFiles(IEnumerable<GeneratedModule> modules, string outputDir) {
         var fullDirectory = Path.GetFullPath(outputDir);
 
-        Directory.CreateDirectory(fullDirectory);
+        if(!Directory.Exists(fullDirectory)) Directory.CreateDirectory(fullDirectory);
 
         var groups = modules.GroupBy(e => {
             if (e.ModuleType.IsConstructedGenericType) return e.ModuleType.GetGenericTypeDefinition();
@@ -502,25 +508,335 @@ public static class GenerationHelpers {
     }
 }
 
+public enum GenericIndexFlags {
+    SingleIndex = 0,
+    RangeIndex = 1,
+    NoneIndex = 2,
+    ValueIndex = 3
+}
+[StructLayout(LayoutKind.Explicit)]
 public struct GenericIndex {
-    public Range Range { get; }
-    public GenericIndex(Range range) => Range = range;
-    public static implicit operator GenericIndex(Range range) => new(range);
-    public static implicit operator GenericIndex(int index) => new(index..(index+1));
-    public static implicit operator GenericIndex(uint index) => new((int)index..((int)index + 1));
+    public static GenericIndex None { get; } = new(.., GenericIndexFlags.NoneIndex);
+    [FieldOffset(0)]
+    private GenericIndexFlags m_Flags;
+    [FieldOffset(4)]
+    private Range m_Range;
+    [FieldOffset(4)]
+    private GCHandle m_IndexValueHandle;
+    public GenericIndexFlags Flags => m_Flags;
+    public Range Range => m_Range;
+    public AbstractValue? IndexObject => m_Flags == GenericIndexFlags.ValueIndex ? (AbstractValue?)m_IndexValueHandle.Target : null;
+    public GenericIndex(Range range, GenericIndexFlags flags) {
+        m_Flags = flags;
+        m_Range = range;
+    }
+    public GenericIndex(AbstractValue value) {
+        m_Flags = GenericIndexFlags.ValueIndex;
+        m_IndexValueHandle = GCHandle.Alloc(value, GCHandleType.Weak);
+    }
+    public static implicit operator GenericIndex(Range range) => new(range, GenericIndexFlags.RangeIndex);
+    public static implicit operator GenericIndex(int index) => new(index..(index+1), GenericIndexFlags.SingleIndex);
+    public static implicit operator GenericIndex(uint index) => new((int)index..((int)index + 1), GenericIndexFlags.SingleIndex);
+    public SpecifiedIndex ToSpecified(int dimSize) {
+        switch (Flags) {
+            case GenericIndexFlags.NoneIndex: return new SpecifiedIndex(GenericIndexFlags.NoneIndex);
+            case GenericIndexFlags.SingleIndex: return new SpecifiedIndex(Range.Start.GetOffset(dimSize));
+            case GenericIndexFlags.RangeIndex: return new(new SpecifiedRange(Range, dimSize));
+            case GenericIndexFlags.ValueIndex: return new(IndexObject!);
+            default: throw new NotImplementedException();
+        }
+    }
+    public int GetDimSize(int dimSize) {
+        var (offset, length) = Range.GetOffsetAndLength(dimSize);
+        Debug.Assert(offset >= 0);
+        Debug.Assert(offset + length < dimSize);
+        return length;
+    }
+}
+
+public struct ValueShape : IEnumerable<int>,IEquatable<ValueShape> {
+    private ImmutableArray<int> m_Shape;
+    public ImmutableArray<int> RawShape => m_Shape;
+    public ValueShape(ReadOnlySpan<int> shape) => m_Shape = shape.ToImmutableArray();
+    public ValueShape Clone() => new(m_Shape.ToArray());
+    public int Length => m_Shape.Length;
+    public int this[int index] {
+        get => m_Shape[index];
+    }
+    public int TotalBits { 
+        get {
+            var result = 1;
+            foreach (var i in m_Shape) result *= i;
+            return result;
+        }
+    }
+    public ReadOnlySpan<int> AsSpan() => m_Shape.AsSpan();
+    public IEnumerator<int> GetEnumerator() 
+        => m_Shape.AsEnumerable().GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() {
+        return GetEnumerator();
+    }
+
+    public bool Equals(ValueShape other) {
+        return m_Shape.SequenceEqual(other.m_Shape);
+    }
+}
+
+public struct SpecifiedIndices : IEnumerable<SpecifiedIndex>,IEquatable<SpecifiedIndices> {
+    private SpecifiedIndex[] m_SpecIndices;
+    private ValueShape m_BaseShape;
+
+    private ValueShape m_ResultShape;
+
+    public ValueShape BaseShape => m_BaseShape;
+    public SpecifiedIndex[] Indices => m_SpecIndices;
+    public SpecifiedIndices(SpecifiedIndex[] indices, ValueShape baseShape) {
+        m_SpecIndices = indices;
+        m_BaseShape = baseShape;
+        m_ResultShape = ResolveResultShape(baseShape, indices);
+    }
+
+    public static ValueShape ResolveResultShape(ValueShape baseShape, SpecifiedIndex[] indices) {
+        var addDims = indices.Count(e => e.Flags == GenericIndexFlags.NoneIndex);
+        var killDims = indices.Count(e => e.Flags == GenericIndexFlags.SingleIndex || e.Flags == GenericIndexFlags.ValueIndex);
+        var result = new int[baseShape.Length + addDims - killDims];
+
+        var resultIndex = 0;
+        var inputIndex = 0;
+        for(var i = 0; i < indices.Length; i++) {
+            switch (indices[i].Flags) {
+                case GenericIndexFlags.SingleIndex: 
+                    if (indices[i].Range.Left >= baseShape[inputIndex]) {
+                        throw new IndexOutOfRangeException();
+                    }
+                    inputIndex++;
+                    break;
+                case GenericIndexFlags.ValueIndex: {
+                    inputIndex++;
+                    break;
+                }
+                case GenericIndexFlags.RangeIndex: {
+                    if (indices[i].Range.BitWidth > baseShape[inputIndex]) {
+                        throw new IndexOutOfRangeException();
+                    }
+                    inputIndex++;
+                    result[resultIndex++] = indices[i].Range.BitWidth;
+                    break;
+                }
+                case GenericIndexFlags.NoneIndex: {
+                    result[resultIndex++] = 1;
+                    break;
+                }
+                default: throw new NotImplementedException();
+            }
+        }
+
+        return new(result);
+    }
+    public SpecifiedIndices(ValueShape baseShape, SpecifiedIndex[] indices) {
+        m_BaseShape = baseShape;
+        m_SpecIndices = indices;
+        m_ResultShape = ResolveResultShape(baseShape, indices);
+    }
+    public GenericIndices ToGenericIndices() {
+        return new(m_SpecIndices.Select(e=>e.ToGenericIndex()).ToArray());
+    }
+    public static SpecifiedIndices FullIndices(ValueShape shape) {
+        var indices = shape.Select(e => new SpecifiedIndex(new SpecifiedRange(0, e))).ToArray();
+        return new SpecifiedIndices(shape, indices);
+    }
+
+
+    public int Length => m_SpecIndices.Length;
+    public SpecifiedIndex this[int index] {
+        get => m_SpecIndices[index];
+        set => m_SpecIndices[index] = value;
+    }
+    public int TotalBits {
+        get {
+            var result = 1;
+            foreach (var i in m_SpecIndices) result *= i.BitWidth;
+            return result;
+        }
+    }
+    public IEnumerator<SpecifiedIndex> GetEnumerator()
+        => (IEnumerator<SpecifiedIndex>)m_SpecIndices.GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() {
+        return GetEnumerator();
+    }
+
+    public bool Equals(SpecifiedIndices other) {
+        if (!m_BaseShape.SequenceEqual(other.m_BaseShape)) return false;
+        for(var i = 0; i < m_SpecIndices.Length; i++) {
+            if (!m_SpecIndices[i].Equals(other[i])) return false;
+        }
+        return true;
+    }
+    public bool IsCompatibleShape(ValueShape targetShape) {
+        return m_ResultShape.SequenceEqual(targetShape);
+    }
+    public void FillBitset(Bitset bitset) {
+        foreach(var i in m_SpecIndices) {
+            // unbounded vec access
+            if (i.Flags == GenericIndexFlags.ValueIndex)
+                return;
+        }
+        FillBitset(bitset, 0, 0);
+    }
+    private void FillBitset(Bitset bitset, int baseAddress, int index) {
+        if(index == m_SpecIndices.Length - 1) {
+            bitset[m_SpecIndices[index].Range + baseAddress] = BitRegionState.True;
+            return;
+        }
+        var range = m_SpecIndices[index].Range;
+        var size = 1;
+        for(var i=index + 1; i < m_BaseShape.Length; i++) {
+            size *= m_BaseShape[i];
+        }
+        for (var i = range.Left; i< range.Right; i++) {
+            FillBitset(bitset, baseAddress + i * size, index + 1);
+        }
+    }
 }
 
 public struct GenericIndices {
-    public GenericIndex[]? Indices { get; }
-    public GenericIndices(GenericIndex[]? indices) => Indices = indices;
+    private static ValueShape m_SingleBitShape = new([1]);
+    public GenericIndex[] Indices { get; }
+    public int KillDims { get; }
+    public int AddDims { get; }
+    public GenericIndices(params GenericIndex[] indices) {
+        Indices = indices;
+        KillDims = indices.Count(e => e.Flags == GenericIndexFlags.SingleIndex || e.Flags == GenericIndexFlags.ValueIndex);
+        AddDims = indices.Count(e => e.Flags == GenericIndexFlags.NoneIndex);
+    }
+    public SpecifiedIndices ResolveSelectionRange(ValueShape shape) {
+        var ranges = new SpecifiedIndex[Indices.Length];
+
+
+        if (!(Indices is null)) {
+            var applyIndex = 0;
+            for (var i = 0; i < Indices.Length; i++) {
+                switch (Indices[i].Flags) {
+                    case GenericIndexFlags.NoneIndex:
+                        break;
+                    case GenericIndexFlags.SingleIndex:
+                        ranges[applyIndex] = new(Indices[i].Range.Start.GetOffset(shape[applyIndex]));
+                        applyIndex++;
+                        break;
+                    case GenericIndexFlags.RangeIndex:
+                        ranges[applyIndex] = new(new SpecifiedRange(Indices[i].Range, shape[applyIndex]));
+                        applyIndex++;
+                        break;
+                    case GenericIndexFlags.ValueIndex:
+                        ranges[applyIndex++] = new(new SpecifiedRange(0, 1));
+                        break;
+                    default:
+                        throw new NotImplementedException();
+                }
+            }
+        }
+
+        return new(ranges, shape);
+    }
+    public ValueShape ResolveResultType(ValueShape shape) {
+        if (Indices is null) return shape;
+
+        Debug.Assert(shape.Length >= Indices.Length);
+
+        if (shape.Length - KillDims + AddDims == 0) return m_SingleBitShape;
+
+        var newShape = new int[shape.Length - KillDims + AddDims];
+        var readIndex = 0;
+        var fillIndex = 0;
+        for(var i = 0; i < Indices.Length; i++) {
+            switch (Indices[i].Flags) {
+                case GenericIndexFlags.NoneIndex:
+                    newShape[fillIndex++] = 1;
+                    break;
+                case GenericIndexFlags.ValueIndex:
+                case GenericIndexFlags.SingleIndex:
+                    readIndex++;
+                    break;
+                case GenericIndexFlags.RangeIndex:
+                    newShape[fillIndex++] = Indices[i].GetDimSize(shape[readIndex++]);
+                    break;
+                default:
+                    throw new NotImplementedException();
+            }
+        }
+        for(;fillIndex < newShape.Length; readIndex++,fillIndex++) {
+            newShape[fillIndex++] = (shape[readIndex++]);
+        }
+        return new(newShape);
+    }
+}
+public ref struct Auto<T> where T : unmanaged {
+    private unsafe T* m_Ptr;
+    public unsafe ref T Value => ref Unsafe.AsRef<T>(m_Ptr);
+
+    public unsafe Auto() {
+        m_Ptr = MemoryAPI.API.Alloc<T>().AsUnmanagedPtr();
+    }
+
+    public unsafe void Dispose() {
+        if(m_Ptr == null) return;
+        MemoryAPI.API.Free(m_Ptr);
+        m_Ptr = null;
+    }
+
 }
 
-public unsafe static class App {
+public unsafe struct Pinned<T> where T : struct {
+    private unsafe T* m_Ptr;
+    public unsafe ref T Value => ref Unsafe.AsRef<T>(m_Ptr);
 
+    public Pinned(T* ptr) {
+        m_Ptr = ptr;
+    }
+
+    public unsafe void Dispose() {
+        if(m_Ptr == null) return;
+        MemoryAPI.API.Free(m_Ptr);
+        m_Ptr = null;
+    }
+}
+public interface IKXA {
+    void Func1();
+    void Func2();
+}
+[StructLayout(LayoutKind.Sequential)]
+public struct KXA: IKXA {
+    private long MT;
+    public long X;
+    public KXA() {
+        MT = typeof(KXA).TypeHandle.Value;
+        X = 114514;
+    }
+    public void Func1() {
+        Console.WriteLine(X);
+    }
+    public readonly void Func2() {
+        
+    }
+    public unsafe IKXA AsInterface() {
+        var ptr = Unsafe.AsPointer(ref this);
+        return Unsafe.AsRef<IKXA>(&ptr);
+    }
+}
+public unsafe static class App {
+   
     public static void Main() {
         Debugger.Break();
 
-        
+        var tensorVar = new TensorVarExpr<string>("test", [4, 9]);
+        var pruned = tensorVar[2,3];
+
+        var parts = pruned.ExpandAllIndices<string>([]);
+
+
+
         IntelliVerilogLocator.RegisterService(ManagedDebugInfoService.Instance);
         IntelliVerilogLocator.RegisterService<IDemangleSerivce>(CxxDemangle.Instance);
         
@@ -553,14 +869,14 @@ public unsafe static class App {
         var generator = new IvDefaultCodeGenerator<VerilogGenerationConfiguration>();
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new RippleClock();
+            var adder = new Identical(8);
 
             var modules = generator.GenerateModule(adder);
 
             GenerationHelpers.WriteGroupedCodeFiles(modules, "./output");
         }
         Console.ReadLine();
-    
-    }
 
+    }
+    
 }

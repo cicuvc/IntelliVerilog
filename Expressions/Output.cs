@@ -10,6 +10,7 @@ namespace IntelliVerilog.Core.Expressions {
     public abstract class Output<TData> : IoComponent<TData>,IUnspecifiedPortFactory where TData : DataType,IDataType<TData> {
         public override IoPortDirection Direction => IoPortDirection.Output;
 
+
         public static IUntypedPort CreateUnspecified(IoBundle parent, ComponentBase root, IoMemberInfo member) {
             return new UnspecifiedLocatedOutput<TData>(parent, root, member);
         }
@@ -22,8 +23,7 @@ namespace IntelliVerilog.Core.Expressions {
         }
     }
     public class UnspecifiedLocatedOutput<TData> : Output<TData>, IUntypedLocatedPort,IUntypedDeclPort where TData : DataType, IDataType<TData> {
-        public override RightValue<Bool> this[int index] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-        public override RightValue<TData> this[Range range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+        public override RightValue<TData> this[params GenericIndex[] range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
         public override GeneralizedPortFlags Flags =>
             GeneralizedPortFlags.SingleComponent | GeneralizedPortFlags.Placeholder | GeneralizedPortFlags.DeclPort;
@@ -31,6 +31,7 @@ namespace IntelliVerilog.Core.Expressions {
         public IoMemberInfo PortMember { get; }
         public IoBundle Parent { get; }
         public ComponentBase Component { get; }
+        public override ValueShape Shape => throw new NotImplementedException();
 
         public IoPortPath Location => new(this, PortMember);
 
@@ -56,6 +57,7 @@ namespace IntelliVerilog.Core.Expressions {
     }
     public abstract class TypeSpecifiedOutput<TData> : Output<TData> where TData : DataType, IDataType<TData> {
         protected DataType m_UntypedType;
+        public override ValueShape Shape { get; }
         public DataType UntypedType {
             get => m_UntypedType;
             set {
@@ -66,8 +68,9 @@ namespace IntelliVerilog.Core.Expressions {
                 m_RightValueCache = null;
             }
         }
-        public TypeSpecifiedOutput(TData type){
+        public TypeSpecifiedOutput(TData type, ValueShape shape) {
             m_UntypedType = type;
+            Shape = shape;
         }
     }
 }

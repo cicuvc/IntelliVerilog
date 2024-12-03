@@ -19,7 +19,12 @@ namespace IntelliVerilog.Core.Expressions {
         public RightValue<TData> Right { get; }
         public AbstractValue UntypedRight => Right;
         public AbstractValue UntypedLeft => Left;
-        protected BinaryRelationExpression(RightValue<TData> lhs, RightValue<TData> rhs) : base(Bool.CreateDefault()) {
+        protected static ValueShape MakeShape(ValueShape operandShape) {
+            var newShape = operandShape.ToArray();
+            newShape[newShape.Length - 1] = 1;
+            return new(newShape);
+        }
+        protected BinaryRelationExpression(RightValue<TData> lhs, RightValue<TData> rhs) : base(Bool.CreateDefault(), MakeShape(lhs.Shape)) {
             if(!lhs.Type.IsWidthSpecified && !rhs.Type.IsWidthSpecified) {
                 throw new Exception("Unable to infer data type width");
             }
@@ -62,7 +67,7 @@ namespace IntelliVerilog.Core.Expressions {
             }
             return (TData)lhs.Type;
         }
-        protected BinaryExpression(RightValue<TData> lhs, RightValue<TData> rhs) : base(MakeDefaultWidth(lhs,rhs)) {
+        protected BinaryExpression(RightValue<TData> lhs, RightValue<TData> rhs) : base(MakeDefaultWidth(lhs,rhs), lhs.Shape) {
             Left = lhs;
             Right = rhs;
         }
@@ -83,7 +88,7 @@ namespace IntelliVerilog.Core.Expressions {
         public RightValue<TData> Left { get; }
 
         public AbstractValue UntypedValue => Left;
-        protected UnaryExpression(RightValue<TData> lhs) : base(lhs.TypedType) {
+        protected UnaryExpression(RightValue<TData> lhs) : base(lhs.TypedType, lhs.Shape) {
             Left = lhs;
         }
         public override bool Equals(AbstractValue? other) {
