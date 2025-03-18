@@ -1,13 +1,18 @@
-﻿using IntelliVerilog.Core.DataTypes;
+﻿using IntelliVerilog.Core.Analysis.TensorLike;
+using IntelliVerilog.Core.DataTypes;
 using System;
+using System.Collections.Immutable;
 
 namespace IntelliVerilog.Core.Expressions {
     public class InvertedInternalOutput<TData> : RightValue<TData>, IInvertedOutput where TData : DataType,IDataType<TData> {
         public IoComponent InternalOut { get; }
-        public GenericIndices SelectedRange { get; }
-        public InvertedInternalOutput(TData type,IoComponent output, GenericIndices range) : base(type, output.Shape, type.DefaultAlgebra) {
+        public ImmutableArray<GenericIndex> SelectedRange { get; }
+
+        public override Lazy<TensorExpr> TensorExpression => throw new NotImplementedException();
+
+        public InvertedInternalOutput(TData type,IoComponent output, ReadOnlySpan<GenericIndex> range) : base(type) {
             InternalOut = output;
-            SelectedRange = range;
+            SelectedRange = range.ToImmutableArray();
         }
 
         public override bool Equals(AbstractValue? other) {

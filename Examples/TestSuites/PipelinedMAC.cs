@@ -1,6 +1,7 @@
 ﻿using IntelliVerilog.Core.Analysis;
 using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.DataTypes;
+using IntelliVerilog.Core.DataTypes.Shape;
 using IntelliVerilog.Core.Expressions;
 using System;
 using System.Collections.Generic;
@@ -41,11 +42,13 @@ namespace IntelliVerilog.Core.Examples.TestSuites {
     }
 
     public class TestBF : UInt,IDataType<TestBF> {
-        public static TestBF DefaultType { get; } = new();
-        public TestBF(): base(12) {
+        public static TestBF DefaultType { get; } = new([12]);
+        public TestBF(ReadOnlySpan<ShapeIndexValue> shape) : base(shape) {
         }
         static TestBF IDataType<TestBF>.CreateDefault() => DefaultType;
-        static TestBF IDataType<TestBF>.CreateWidth(uint width) => DefaultType;
+
+        static TestBF IDataType<TestBF>.CreateWidth(ReadOnlySpan<ShapeIndexValue> shape)
+            => DefaultType;
     }
     public class TestOut : Module<(
         Input<UInt> inPort,

@@ -1,155 +1,138 @@
 ﻿using IntelliVerilog.Core.Analysis;
+using IntelliVerilog.Core.Analysis.TensorLike;
+using IntelliVerilog.Core.DataTypes;
+using IntelliVerilog.Core.DataTypes.Shape;
 using IntelliVerilog.Core.Runtime.Unsafe;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics.X86;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.Utils {
-    public enum BitRegionState {
-        False = 0, True = 1, Mix = 2
-
-    }
-    public class Bitset:IDisposable,IEquatable<Bitset> {
-        private const int m_ElementBits = 64;
-        private MemoryRegion<ulong> m_Data;
+    public sealed class BitsetND : IDisposable {
         private bool m_DisposedValue;
-        private int m_TotalBits;
-
-        public int TotalBits => m_TotalBits;
-
-        public Bitset(int bits) {
-            m_TotalBits = bits;
-            m_Data = MemoryAPI.API.Alloc<ulong>((uint)Math.Ceiling(1.0 * bits / m_ElementBits));
-            for (var i = 0u; i < m_Data.ElementLength; i++) m_Data[i] = 0;
-        }
-        public Bitset Clone() {
-            var newSet = new Bitset(TotalBits);
-            for(var i = 0u; i < m_Data.ElementLength; i++) {
-                newSet.m_Data[i] = m_Data[i];
+        private Size m_Shape;
+        private MemoryRegion<byte> m_Data;
+        public Size Shape => m_Shape;
+        public BitsetND(Size shape) {
+            if(!shape.IsAllDetermined) {
+                throw new ArgumentException("Shape should be all determined");
             }
-            return newSet;
+
+            var totalBits = shape.GetTotalBits();
+            
+            m_Shape = shape;
+            m_Data = MemoryAPI.API.Alloc<byte>((uint)totalBits);
+            m_Data.Memset(0);
         }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static ulong GetMask(int length) {
-            return (length >= m_ElementBits ? 0: (1ul<<length)) - 1;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static ulong GetElemRange(ulong value, int start, int end,out ulong mask) {
-            mask = GetMask(end - start);
-            return (value >> start) & mask;
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void SetElemRange(ref ulong value, int start, int end, bool en) {
-            var mask = GetMask(end - start);
-            if (en) value |= mask << start;
-            else value &= ~(mask << start);
-        }
-        public bool this[Index index] {
-            get {
-                var start = index.GetOffset(m_TotalBits);
-                var startElem = start / m_ElementBits;
-                return ((m_Data[startElem] >> (start % m_ElementBits)) & 1) != 0;
+        public void SetRangeValue(ReadOnlySpan<GenericIndex> slices, bool value) {
+            foreach(var i in ShapeEvaluation.GetStepper(m_Shape, slices.ToImmutableArray())) {
+                m_Data[i] = (byte)(value ? 1 : 0);
             }
-            set {
-                var start = index.GetOffset(m_TotalBits);
-                var startElem = start / m_ElementBits;
-                if (value) {
-                    m_Data[startElem] |= 1ul << startElem;
-                } else {
-                    m_Data[startElem] &= ~(1ul << startElem);
+        }
+        public bool ContainsNonZeroRange(ReadOnlySpan<GenericIndex> slices) {
+            foreach(var i in ShapeEvaluation.GetStepper(m_Shape, slices.ToImmutableArray())) {
+                if(m_Data[i] != 0) return true;
+            }
+            return false;
+        }
+        public bool ContainsZeroRange(ReadOnlySpan<GenericIndex> slices) {
+            foreach(var i in ShapeEvaluation.GetStepper(m_Shape, slices.ToImmutableArray())) {
+                if(m_Data[i] == 0) return true;
+            }
+            return false;
+        }
+        public void InplaceAnd(BitsetND bitset) {
+            if(!bitset.m_Shape.Equals(m_Shape)) {
+                throw new ArgumentException($"Unable to inplace logical-and on different shape {m_Shape} and {bitset.m_Shape}");
+            }
+
+            var currentPtr = 0ul;
+            var srcMemory = bitset.m_Data;
+            var dstMemory = m_Data;
+            if(Avx2.IsSupported) {
+                unsafe {
+                    var alignBound = m_Data.ByteLength & ~0x1Ful;
+                    var dstPtr = dstMemory.AsUnmanagedPtr();
+                    var srcPtr = srcMemory.AsUnmanagedPtr();
+                    for(; currentPtr < alignBound; currentPtr += 32) {
+                        var dst = Avx.LoadDquVector256(dstPtr + currentPtr);
+                        var src = Avx.LoadDquVector256(srcPtr + currentPtr);
+                        dst = Avx2.And(dst, src);
+                        Avx.StoreAligned(dstMemory.AsUnmanagedPtr() + currentPtr, dst);
+                    }
                 }
             }
-        }
-        public void InplaceAnd(Bitset bitset) {
-            Debug.Assert(bitset.TotalBits == TotalBits);
-
-            for(var i=0u;i< m_Data.ElementLength; i++) {
-                m_Data[i] &= bitset.m_Data[i];
+            for(; currentPtr < dstMemory.ByteLength; currentPtr++) {
+                dstMemory[currentPtr] &= srcMemory[currentPtr];
             }
         }
-
-        public BitRegionState this[SpecifiedRange range] {
-            get {
-                var start = range.Left;
-                var end = range.Right;
-
-                Debug.Assert(start < end);
-
-                var startElem = start / m_ElementBits;
-                var endElem = 1 + (end - 1) / m_ElementBits;
-
-                var endOffset = startElem == endElem - 1 ? 1 + ((end - 1) % m_ElementBits) : m_ElementBits;
-                var firstElem = GetElemRange(m_Data[startElem++], start % m_ElementBits, endOffset, out var mask);
-                var state = firstElem == mask ? BitRegionState.True : (firstElem == 0 ? BitRegionState.False : BitRegionState.Mix);
-
-                for(var i  = startElem; i < endElem && state != BitRegionState.Mix; i++) {
-                    var endBit = i == endElem - 1 ? 1 + ((end - 1) % m_ElementBits) : 64;
-                    var elem = GetElemRange(m_Data[i], 0, endBit, out mask);
-
-                    if (mask != elem && elem != 0) return BitRegionState.Mix;
-                    if((state == BitRegionState.True ^ (elem != 0))) return BitRegionState.Mix;
-                }
-
-                return state;
-            }
-            set {
-                Debug.Assert(value != BitRegionState.Mix);
-
-                var en = value == BitRegionState.True;
-
-                var start = range.Left;
-                var end = range.Right;
-
-                Debug.Assert(start < end);
-
-                var startElem = start / m_ElementBits;
-                var endElem = 1 + (end - 1) / m_ElementBits;
-
-                var endOffset = startElem == endElem - 1 ? 1 + ((end - 1) % m_ElementBits) : m_ElementBits;
-                SetElemRange(ref m_Data[startElem++], start % m_ElementBits, endOffset, en);
-                
-                for (var i = startElem; i < endElem; i++) {
-                    var endBit = i == endElem - 1 ? 1 + ((end - 1) % m_ElementBits) : 64;
-                    SetElemRange(ref m_Data[i], 0, endBit, en);
-                }
-
-            }
-        }
-        protected virtual void Dispose(bool disposing) {
-            if (!m_DisposedValue) {
-                if (disposing) {
-                }
+        private void Dispose(bool disposing) {
+            if(!m_DisposedValue) {
+                if(disposing) {}
 
                 MemoryAPI.API.Free(m_Data);
                 m_DisposedValue = true;
             }
         }
-        ~Bitset() => Dispose(disposing: false);
+        public override string ToString() {
+            var sb = new StringBuilder();
+            BuildString(sb, 0, 0, 0);
+            return sb.ToString();
+        }
+        private void BuildString(StringBuilder sb, int indent, int offset, int currentRank) {
+            var elementLength = m_Shape[currentRank].Value;
+            if(currentRank + 1 == m_Shape.Length) {
+                sb.Append(' ', indent);
+                sb.Append('[');
+                for(var i = 0; i < elementLength; i++) {
+                    
+
+                    sb.Append(m_Data[offset + i] == 0 ? '0' : '1');
+                    if(i!= elementLength - 1) {
+                        sb.Append(',');
+                    }
+                    if(i % 32 == 31 && i + 1 != elementLength) {
+                        sb.Append(Environment.NewLine);
+                        sb.Append(' ', indent + 1);
+                    }
+                }
+
+                sb.Append(']');
+            } else {
+                sb.Append(' ', indent);
+                sb.Append('[');
+                sb.Append(Environment.NewLine);
+
+                var stride = 1;
+                for(var i = currentRank + 1; i < m_Shape.Length; i++) {
+                    stride *= m_Shape[i].Value;
+                }
+                for(var i = 0; i < elementLength; i++) {
+                    BuildString(sb, indent + 4, offset + stride * i, currentRank + 1);
+                    sb.Append(',');
+                    sb.Append(Environment.NewLine);
+                }
+
+
+                sb.Append(Environment.NewLine);
+                sb.Append(' ', indent);
+                sb.Append(']');
+            }
+        }
+        ~BitsetND() {
+            Dispose(disposing: false);
+        }
+
         public void Dispose() {
             Dispose(disposing: true);
             GC.SuppressFinalize(this);
         }
-        public override string ToString() {
-            scoped var sb = (Span<char>)stackalloc char[m_TotalBits];
-            for(var i = 0; i < m_TotalBits; i += m_ElementBits) {
-                var value = m_Data[i / m_ElementBits];
-                for(var j=0;j < m_ElementBits && i+j < m_TotalBits; j++, value >>= 1) {
-                    sb[i + j] = ((value & 1) != 0) ? '1' : '0';
-                }
-            }
-            return new string(sb);
-        }
-
-        public bool Equals(Bitset? other) {
-            if (other?.m_TotalBits != m_TotalBits) return false;
-            for(var i = 0u; i < m_Data.ElementLength; i++) {
-                if (m_Data[i] != other.m_Data[i]) return false;
-            }
-            return true;
-        }
     }
+    
 }

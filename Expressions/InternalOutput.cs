@@ -3,6 +3,7 @@ using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.DataTypes;
 using IntelliVerilog.Core.Expressions.Algebra;
 using System;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Reflection;
 
@@ -13,10 +14,10 @@ namespace IntelliVerilog.Core.Expressions {
 
         public IoComponent InternalOut => UntypedComponent;
 
-        public GenericIndices SelectedRange => throw new NotImplementedException();
+        public ImmutableArray<GenericIndex> SelectedRange => throw new NotImplementedException();
     }
     public class InternalOutput<TData> : TypeSpecifiedOutput<TData>, IUntypedConstructionPort, IAssignableValue where TData : DataType, IDataType<TData> {
-        public InternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member) : base(dataType, new([(int)dataType.WidthBits])) {
+        public InternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member) : base(dataType) {
             PortMember = member; ;
             Parent = parent;
             Component = root;

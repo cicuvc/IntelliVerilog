@@ -17,7 +17,14 @@ namespace IntelliVerilog.Core.Runtime.Unsafe {
             m_Buffer = (T*)buffer;
             m_Length = len;
         }
+        
         public ref T this[long index] {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => ref m_Buffer[index];
+            //set => m_Buffer[index] = value;
+        }
+        public ref T this[ulong index] {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => ref m_Buffer[index];
             //set => m_Buffer[index] = value;
         }
@@ -39,7 +46,13 @@ namespace IntelliVerilog.Core.Runtime.Unsafe {
         public MemoryRegion<V> AsRegion<V>() where V : unmanaged {
             return new MemoryRegion<V>(m_Buffer, m_Length);
         }
-        public T* AsUnmanagedPtr() => (T*)m_Buffer;
+        public readonly T* AsUnmanagedPtr() => (T*)m_Buffer;
         public static implicit operator IntPtr(MemoryRegion<T> region) => (IntPtr)region.m_Buffer;
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        public void Memset(in T value) {
+            for(var i =0ul;i < ElementLength; i++) {
+                this[(long)i] = value;
+            }
+        }
     }
 }

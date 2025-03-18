@@ -104,13 +104,13 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         public abstract string Name { get; set; }
         public abstract void GenerateDecl(VerilogGenerationContext context);
         public abstract void GenerateBlock(VerilogGenerationContext context);
-        public VerilogValueDef(ValueShape shape): base(shape) { }
+        public VerilogValueDef(ReadOnlySpan<int> shape): base(shape) { }
     }
     public class VerilogRegisterDef : VerilogValueDef {
         public RegisterDesc RegisterInfo { get; }
         public override string Name { get; set; }
         public override bool NoLineEnd => false;
-        public VerilogRegisterDef(RegisterDesc register , string name, ValueShape shape):base(shape) {
+        public VerilogRegisterDef(RegisterDesc register , string name, ReadOnlySpan<int> shape):base(shape) {
             RegisterInfo = register;
             Name = name;
         }
@@ -133,9 +133,9 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
             get => ((TensorDynamicExpr)m_Expression!).BaseExpression;
             set => ((TensorDynamicExpr)m_Expression!).BaseExpression = value;
         }
-        public VerilogWireDef(string name, ValueShape shape, IWireLike? wireLike = null):base(shape) {
+        public VerilogWireDef(string name, ReadOnlySpan<int> shape, IWireLike? wireLike = null):base(shape) {
             Name = name;
-            m_Expression = new TensorDynamicExpr(shape.AsSpan());
+            m_Expression = new TensorDynamicExpr(shape);
 
             WirePrototype = wireLike;
         }
@@ -318,24 +318,28 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         public override bool NoLineEnd => false;
         public string ShapedName { get; }
         public TensorExpr UnshapedExpression { get; }
-        public VerilogIoDecl(IoComponent decl ,string name, VerilogIoType type, ValueShape shape, bool isRegister = false):base(shape) {
+        public VerilogIoDecl(IoComponent decl ,string name, VerilogIoType type, ReadOnlySpan<int> shape, bool isRegister = false):base(shape) {
             DeclIoComponent = decl;
             Name = name;
             Type = type;
             IsRegister = isRegister;
             ShapedName = $"s_{name}";
 
+            var totalBits = TensorIndexMathHelper.Product(shape);
+
             if(type == VerilogIoType.InOut && shape.Length != 1) {
                 throw new NotSupportedException("Port annnotated inout should not be shaped");
             }
             if(type == VerilogIoType.Input) {
-                UnshapedExpression = new TensorVarExpr<VerilogIoDecl>(this, [shape.TotalBits]);
-                m_Expression = TensorExpr.Reshape(UnshapedExpression, shape.AsSpan());
+                UnshapedExpression = new TensorVarExpr<VerilogIoDecl>(this, [totalBits]);
+                m_Expression = TensorExpr.Reshape(UnshapedExpression, shape);
             }
             if(type == VerilogIoType.Output) {
-                m_Expression = new TensorVarExpr<VerilogIoDecl>(this, shape.AsSpan());
+                m_Expression = new TensorVarExpr<VerilogIoDecl>(this, shape);
                 UnshapedExpression = TensorExpr.Flatten(Expression);
             }
+
+            throw new NotSupportedException("Unknown port type");
         }
         public override void GenerateBlock(VerilogGenerationContext context) {
 
@@ -450,17 +454,19 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         }
     }
     public class VerilogFixedRangeIndex: VerilogIndex {
-        public SpecifiedRange Range { get; }
+        public ImmutableArray<GenericIndex> Range { get; }
         public override bool NoLineEnd => false;
-        public VerilogFixedRangeIndex(SpecifiedRange range) {
-            Range = range;
+        public VerilogFixedRangeIndex(ReadOnlySpan<GenericIndex> range) {
+            Range = range.ToImmutableArray();
         }
         public override void GenerateCode(VerilogGenerationContext context) {
-            if(Range.Left + 1 == Range.Right) {
-                context.Append(Range.Left.ToString());
-            } else {
-                context.AppendFormat("{0}:{1}", Range.Left, Range.Right - 1);
-            }
+            throw new NotImplementedException();
+            // [TODO]
+            //if(Range.Left + 1 == Range.Right) {
+            //    context.Append(Range.Left.ToString());
+            //} else {
+            //    context.AppendFormat("{0}:{1}", Range.Left, Range.Right - 1);
+            //}
         }
         public override void GenerateWithBaseIndex(VerilogGenerationContext context, VerilogAstNode baseIndex) {
             if (Range.Left + 1 == Range.Right) {
@@ -484,7 +490,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         public VerilogIndex[] SelectedRange { get; set; }
         public bool CanOmitIndexing { get; }
         public override bool NoLineEnd => false;
-        protected static ValueShape ResolveSelectionShape(ValueShape baseShape, VerilogIndex[] range) {
+        protected static ReadOnlySpan<int> ResolveSelectionShape(ReadOnlySpan<int> baseShape, VerilogIndex[] range) {
             Debug.Assert(baseShape.Length == range.Length);
 
             
@@ -529,7 +535,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
     }
     public abstract class VerilogExpressionBase : VerilogAstNode {
         protected TensorExpr? m_Expression;
-        public ValueShape Shape { get; }
+        public ImmutableArray<int> Shape { get; }
         [DebuggerHidden]
         public TensorExpr Expression {
             get {
@@ -541,8 +547,8 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         protected virtual TensorExpr CreateExpression() {
             return new TensorVarExpr<VerilogExpressionBase>(this, Shape.AsSpan());
         }
-        public VerilogExpressionBase(ValueShape shape) {
-            Shape = shape;
+        public VerilogExpressionBase(ReadOnlySpan<int> shape) {
+            Shape = shape.ToImmutableArray();
         }
     }
     public abstract class VerilogBinaryOperator: VerilogExpressionBase {
@@ -951,14 +957,14 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
             }
 
             if(value is IUntypedUnaryExpression unaryExpression) {
-                var lhs = ConvertExpressions(unaryExpression.UntypedValue, model, module);
+                var lhs = ConvertExpressions(unaryExpression.UntypedBaseValue, model, module);
 
                 if (value is IUntypedCastExpression) {
                     return lhs;
                 }
                 if (value is UIntNotExpression) return new VerilogNotOperator(lhs);
                 if (value is IUntypedGeneralBitSelectionExpression selectionExpression) {
-                    var baseExpression = ConvertExpressions(selectionExpression.UntypedValue, model, module);
+                    var baseExpression = ConvertExpressions(selectionExpression.UntypedBaseValue, model, module);
                     var converter = (Func<AbstractValue, VerilogAstNode>)(e => ConvertExpressions(e, model, module));
 
                     var selection =  new VerilogRangeSelection(baseExpression, VerilogIndex.FromSpecIndices(converter,selectionExpression.SelectedRange.Indices));
@@ -997,7 +1003,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                 return selection;
             }
             if(value is UIntLiteral literal) {
-                return new VerilogConst((int)literal.Type.WidthBits, literal.Value);
+                return new VerilogConst((int)literal.UntypedType.WidthBits, literal.Value);
             }
             if (value is BoolLiteral bLiteral) {
                 return new VerilogConst(1, bLiteral.Value ? 1 : 0);
@@ -1197,7 +1203,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
                     return (VerilogAstNode)assignmentNode;
                 }
                 if(e is SwitchDesc switchDesc) {
-                    var bits = (int)switchDesc.SwitchValue.Type.WidthBits;
+                    var bits = (int)switchDesc.SwitchValue.UntypedType.WidthBits;
                     var condition = ConvertExpressions(switchDesc.SwitchValue, compModel, moduleAst);
                     var caseNode = new VerilogCase(condition, switchDesc.BranchList.Length);
 

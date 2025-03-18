@@ -10,6 +10,7 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
         Slice = 0x0,
         Access = 0x1, // reduce dim
         None = 0x2, // expand dim
+        Variable = Access | 0x4
     }
     public struct SliceIndex {
         public static SliceIndex All { get; } = ..; // [:] in python
@@ -31,6 +32,15 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
             => new(range.Start, range.End);
         public static implicit operator SliceIndex(int index)
             => new(index, index + 1, 1, SliceIndexType.Access);
+        public override string ToString() {
+            return IndexType switch {
+                SliceIndexType.Slice => $"Slice({Start}, {End}, {Interval})",
+                SliceIndexType.None => "None",
+                SliceIndexType.Access => $"{Start}",
+                SliceIndexType.Variable => "Variable",
+                _ => throw new NotImplementedException()
+            };
+        }
     }
     public struct TransformIndex {
         public ImmutableArray<TensorIndexExpr> Indices { get; }
@@ -76,6 +86,12 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
             if(BaseExpression is null) throw new NullReferenceException("Dynamic expression not binded");
             return new TransformIndex(indices, BaseExpression);
         }
+        public override bool Equals(TensorExpr? expr) {
+            if(expr is TensorDynamicExpr dyn) {
+                return dyn.BaseExpression?.Equals(BaseExpression) ?? Shape.Equals(dyn.Shape);
+            }
+            return false;
+        }
     }
     public abstract class TensorTransformExpr : TensorExpr {
         protected TensorTransformExpr(ReadOnlySpan<int> shape) : base(shape) {
@@ -90,13 +106,13 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
         }
     }
     public abstract class TensorLeafExpr : TensorExpr {
-        public abstract object UntypedData { get; }
+        public abstract object? UntypedData { get; }
          
         protected TensorLeafExpr(ReadOnlySpan<int> shape) : base(shape) {
         }
         
     }
-    public abstract class TensorExpr {
+    public abstract class TensorExpr:IEquatable<TensorExpr> {
         public ImmutableArray<int> Shape { get; }
         public TensorExpr this[params SliceIndex[] slices] {
             get {
@@ -106,6 +122,7 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
         public TensorExpr(ReadOnlySpan<int> shape) {
             Shape = shape.ToImmutableArray();
         }
+        public abstract bool Equals(TensorExpr? expr);
         public TransformIndexParts[] ExpandAllIndices<TData>(ReadOnlySpan<TData> data) {
             var indices = data.ToImmutableArray()
                 .Select((e, idx) => new TensorIndexVarExpr<TData>(0, Shape[idx] - 1, e)).ToArray();
@@ -165,20 +182,22 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
             var finalShape = x.Shape.Where((e) => e != -1).ToArray();
             return Reshape(x, finalShape);
         }
-        public static TensorExpr Repeat(TensorExpr x, ReadOnlySpan<int> repeats) {
+        public static TensorExpr Repeat(TensorExpr x, ReadOnlySpan<int> repeats, bool isInterleaved = false) {
             Debug.Assert(x.Shape.Length >= repeats.Length);
 
             var repeatsArray = repeats.ToImmutableArray();
             var extendedRepeats = x.Shape.Select((e, idx) => repeatsArray.Length <= idx ? 1 : repeatsArray[idx]).ToArray();
             var newShape = x.Shape.Select((e, idx) => extendedRepeats[idx] * e).ToArray();
 
-            return new TensorRepeatViewExpr(x, newShape, extendedRepeats);
+            return new TensorRepeatViewExpr(x, newShape, extendedRepeats, isInterleaved);
         }
-        public static TensorExpr View(TensorExpr x, SliceIndex[] slices) {
-            var addDim = slices.Count(e => e.IndexType == SliceIndexType.None);
-            var killDim = slices.Count(e => e.IndexType == SliceIndexType.Access);
+        public static TensorExpr View(TensorExpr x, ReadOnlySpan<SliceIndex> slices) {
+            var slicesImm = slices.ToImmutableArray();
 
-            var extendedIndices = slices.Concat(Enumerable.Range(0, x.Shape.Length + addDim - slices.Length).Select(e=>SliceIndex.All)).ToArray();
+            var addDim = slicesImm.Count(e => e.IndexType == SliceIndexType.None);
+            var killDim = slicesImm.Count(e => e.IndexType == SliceIndexType.Access);
+
+            var extendedIndices = slicesImm.Concat(Enumerable.Range(0, x.Shape.Length + addDim - slices.Length).Select(e=>SliceIndex.All)).ToArray();
             var currentDim = 0;
             var appliedDim = extendedIndices.Select(e => {
                 if(e.IndexType == SliceIndexType.None) return currentDim;

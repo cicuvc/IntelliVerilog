@@ -2,6 +2,7 @@
 using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.DataTypes;
 using System;
+using System.Collections.Immutable;
 using System.Reflection;
 
 namespace IntelliVerilog.Core.Expressions {
@@ -9,8 +10,11 @@ namespace IntelliVerilog.Core.Expressions {
         public abstract AbstractValue UntypedRValue { get; }
         public abstract IoPortDirection Direction { get; }
         public abstract GeneralizedPortFlags Flags { get; }
-        public abstract ValueShape Shape { get; }
+        public abstract Size Shape { get; }
         public virtual Func<string> Name { get; set; } = () => "<unnamed port>";
+        public override string ToString() {
+            return $"{GetType().Name}: {Name()}";
+        }
         //public abstract void InitUnspecifiedLocated(IoBundle parent, ComponentBase root, IoMemberInfo member);
     }
     

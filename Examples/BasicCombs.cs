@@ -1,4 +1,5 @@
-﻿using IntelliVerilog.Core.Components;
+﻿using IntelliVerilog.Core.Analysis.TensorLike;
+using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.DataTypes;
 using IntelliVerilog.Core.Expressions;
 using System;
@@ -21,6 +22,27 @@ namespace IntelliVerilog.Core.Examples {
             io.outValue = io.inValue.RValue;
         }
     }
+    public class ReshapeTest: Module<(
+        Input<UInt> way1In,
+        Input<UInt> way2In,
+        Output<UInt> wayOut
+        )> {
+        public ReshapeTest(uint width) {
+            ref var io = ref UseDefaultIo(new() {
+                way1In = width.Bits(),
+                way2In = width.Bits(),
+                wayOut = (2 * width).Bits()
+            });
+
+            var combine = Wire.New<UInt>(width.Bits(), [2]);
+            combine[0] = io.way1In;
+            combine[1] = io.way2In;
+
+            var flatten = combine.RValue.Reshape([(int)width * 2]);
+
+            io.wayOut = new ExpressionRightValueWrapper<UInt>(flatten);
+        }
+    }
     public class Identical : Module<(
         Input<UInt> way1In,
         Input<UInt> way2In,
@@ -35,8 +57,8 @@ namespace IntelliVerilog.Core.Examples {
             });
 
             var splitter = new Splitter(width);
-            splitter.IO.twoWay[0] = io.way1In[GenericIndex.None];
-            splitter.IO.twoWay[1] = io.way2In[GenericIndex.None];
+            splitter.IO.twoWay[0] = io.way1In;
+            splitter.IO.twoWay[1] = io.way2In;
 
             io.way1 = splitter.IO.way1;
             io.way2 = splitter.IO.way2;

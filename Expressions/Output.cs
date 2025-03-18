@@ -3,6 +3,7 @@ using IntelliVerilog.Core.Components;
 using IntelliVerilog.Core.DataTypes;
 using IntelliVerilog.Core.Expressions.Algebra;
 using System;
+using System.Collections.Immutable;
 using System.Reflection;
 
 namespace IntelliVerilog.Core.Expressions {
@@ -31,7 +32,7 @@ namespace IntelliVerilog.Core.Expressions {
         public IoMemberInfo PortMember { get; }
         public IoBundle Parent { get; }
         public ComponentBase Component { get; }
-        public override ValueShape Shape => throw new NotImplementedException();
+        public override Size Shape => throw new NotImplementedException();
 
         public IoPortPath Location => new(this, PortMember);
 
@@ -57,20 +58,20 @@ namespace IntelliVerilog.Core.Expressions {
     }
     public abstract class TypeSpecifiedOutput<TData> : Output<TData> where TData : DataType, IDataType<TData> {
         protected DataType m_UntypedType;
-        public override ValueShape Shape { get; }
+        public override Size Shape { get; }
         public DataType UntypedType {
             get => m_UntypedType;
             set {
-                if (m_UntypedType.IsWidthSpecified) {
+                if (m_UntypedType.IsShapeComplete) {
                     throw new InvalidOperationException("Override specified type!!");
                 }
                 m_UntypedType = value;
                 m_RightValueCache = null;
             }
         }
-        public TypeSpecifiedOutput(TData type, ValueShape shape) {
+        public TypeSpecifiedOutput(TData type) {
             m_UntypedType = type;
-            Shape = shape;
+            Shape = type.Shape;
         }
     }
 }

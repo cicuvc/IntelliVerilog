@@ -11,7 +11,7 @@ namespace IntelliVerilog.Core.Expressions {
 
         public override RightValue<TData> this[params GenericIndex[] range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
-        public ExpressedOutput(RightValue<TData> expression) : base(expression.TypedType, expression.Shape) {
+        public ExpressedOutput(RightValue<TData> expression) : base(expression.TypedType) {
             Expression = expression;
         }
     }

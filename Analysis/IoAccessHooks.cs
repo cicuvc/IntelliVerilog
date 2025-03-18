@@ -38,7 +38,7 @@ namespace IntelliVerilog.Core.Analysis {
 
             currentModel.AssignSubModuleConnections((IAssignableValue)oldValue, newValue, new(Array.Empty<GenericIndex>()), returnAddress);
 
-            return !(oldValue is IoBundle);
+            return false;
         }
         public static object NotifyIoBundleGet(IoBundle bundle, IUntypedPort oldValue) {
             if(oldValue is IoComponent ioComponent) {
@@ -77,7 +77,7 @@ namespace IntelliVerilog.Core.Analysis {
             var buildingModel = analysisContext.CurrentComponent.InternalModel as ComponentBuildingModel;
 
             if(value is AbstractValue signalExpression) {
-                var staged = buildingModel.AssignLocalSignalVariable(signalExpression.Type.GetType(),localName, signalExpression);
+                var staged = buildingModel.AssignLocalSignalVariable(signalExpression.UntypedType.GetType(),localName, signalExpression);
 
                 var localVariable = methodInfo.GetMethodBody().LocalVariables[localIndex];
                 Debug.Assert(staged.GetType().IsAssignableTo(localVariable.LocalType));
@@ -108,22 +108,22 @@ namespace IntelliVerilog.Core.Analysis {
             }
             if(target is AbstractValue genericExpr) {
                 genericExpr = genericExpr.UnwrapCast();
-                if (genericExpr is IUntypedGeneralBitSelectionExpression bitSelection) {
-                    var untypedLhs = (object)bitSelection.UntypedValue.UnwrapCast();
-                    if (untypedLhs is IInvertedOutput iio) {
-                        untypedLhs = iio.InternalOut;
-                    }
+                //if (genericExpr is IUntypedGeneralBitSelectionExpression bitSelection) {
+                //    var untypedLhs = (object)bitSelection.UntypedBaseValue.UnwrapCast();
+                //    if (untypedLhs is IInvertedOutput iio) {
+                //        untypedLhs = iio.InternalOut;
+                //    }
 
-                    if (untypedLhs is IAssignableValue lhs) {
-                        var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
-                        var returnAddress = returnTracker.TrackReturnAddress(module, paramIndex: 3);
+                //    if (untypedLhs is IAssignableValue lhs) {
+                //        var returnTracker = IntelliVerilogLocator.GetService<ReturnAddressTracker>()!;
+                //        var returnAddress = returnTracker.TrackReturnAddress(module, paramIndex: 3);
 
-                        buildingModel.AssignSubModuleConnections(lhs, value, bitSelection.SelectedRange.ToGenericIndices(), returnAddress);
-                        return;
-                    } 
+                //        buildingModel.AssignSubModuleConnections(lhs, value, bitSelection.SelectedRange.ToGenericIndices(), returnAddress);
+                //        return;
+                //    } 
                     
-                    throw new InvalidOperationException("Assign to non-assignable ref trace object");
-                }
+                //    throw new InvalidOperationException("Assign to non-assignable ref trace object");
+                //}
             }
            
 

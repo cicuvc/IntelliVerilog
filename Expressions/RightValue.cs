@@ -1,8 +1,11 @@
 ﻿using IntelliVerilog.Core.Analysis;
+using IntelliVerilog.Core.Analysis.TensorLike;
 using IntelliVerilog.Core.DataTypes;
+using IntelliVerilog.Core.DataTypes.Shape;
 using IntelliVerilog.Core.Expressions.Algebra;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
@@ -15,85 +18,86 @@ namespace IntelliVerilog.Core.Expressions;
 public interface IRecursiveExpression {
     void EnumerateSubNodes(Action<AbstractValue> callback);
 }
-public abstract class AbstractValue :IEquatable<AbstractValue>, IRecursiveExpression {
-    protected DataType m_ValueType;
-    protected GCHandle m_WeakRef;
-    public GCHandle WeakRef {
-        get {
-            if (!m_WeakRef.IsAllocated) m_WeakRef = GCHandle.Alloc(this, GCHandleType.Weak);
-            return m_WeakRef;
-        }
+public abstract class AbstractValue : IEquatable<AbstractValue>, IRecursiveExpression {
+    public DataType UntypedType { get; }
+    public IAlg Algebra => UntypedType.DefaultAlgebra;
+    /// <summary>
+    /// Untyped tensor expressions mantains shape and calculation graph of abstract value. 
+    /// </summary>
+    public abstract Lazy<TensorExpr> TensorExpression { get; }
+    public AbstractValue(DataType type) {
+        UntypedType = type;
     }
-    public virtual DataType Type { 
-        get=> m_ValueType;
-        set {
-            if (m_ValueType.IsWidthSpecified) {
-                throw new InvalidOperationException("Data type already specified");
-            }
-            m_ValueType = value;
-            var shape = Shape.ToArray();
-            shape[shape.Length - 1] = (int)value.WidthBits;
-            Shape = new(shape);
 
-            EnumerateSubNodes(PropagateDataType);
-        }
-    }
-    public IAlg Algebra { get; }
-    public ValueShape Shape { get; set; }
-    public AbstractValue(DataType type, ValueShape shape , IAlg? algebra = null) {
-        m_ValueType = type;
-        Algebra = algebra ?? type.DefaultAlgebra;
-        Shape = shape;
-    }
     public abstract bool Equals(AbstractValue? other);
-    public AbstractValue GetBitSelection(GenericIndices range) {
-        var newShape = range.ResolveResultType(Shape);
-        var newSelection = range.ResolveSelectionRange(Shape);
-        return new GeneralBitsSelectionExpression(this, newShape, newSelection);
-    }
-    public AbstractValue GetCombination(int axis = -1,params AbstractValue[] values) {
-        Debug.Assert(values.Length > 0);
-        var newShape = values[0].Shape.ToArray();
-        if (axis == -1) axis = newShape.Length - 1;
+    public AbstractValue Reshape(ReadOnlySpan<int> newShape) {
+        var newDataType = UntypedType.CreateShapedType(MemoryMarshal.Cast<int, ShapeIndexValue>(newShape));
 
-        foreach (var i in values) {
-            var shape = i.Shape;
-            for(var j = 0; j < shape.Length; j++) {
-                if (j == axis) newShape[j] += shape[j];
-                else if (shape[j] != newShape[j]) {
-                    throw new InvalidOperationException("Incompatible shape");
-                }
-            }
+        if(UntypedType.IsShapeComplete) {
+            Debug.Assert(TensorExpression.IsEvaluated);
+            var derivedExpression = TensorExpr.Reshape(TensorExpression.Value, newShape);
+            return new GeneralTransformExpression(newDataType, derivedExpression, this);
+        } else {
+            var newShapeImm = newShape.ToImmutableArray();
+            var expressionLazy = new Lazy<TensorExpr>(() => TensorExpr.Reshape(TensorExpression.Value, newShapeImm.AsSpan()));
+            return new GeneralTransformExpression(newDataType, expressionLazy, this);
         }
-        return new GeneralCombinationExpression(values[0].Type, new(newShape), values);
+    }
+    public AbstractValue View(ReadOnlySpan<GenericIndex> indices) {
+        var tensorIndices = indices.ToImmutableArray().Select(e => e.ConstIndex).ToArray();
+
+        var newDataType = UntypedType.CreateShapedType(ShapeEvaluation.View(UntypedType.Shape, indices).Span);
+
+        if(UntypedType.IsShapeComplete) {
+            Debug.Assert(TensorExpression.IsEvaluated);
+            var derivedExpression = TensorExpr.View(TensorExpression.Value, tensorIndices);
+            return new GeneralTransformExpression(newDataType, derivedExpression, this);
+        } else {
+            var expressionLazy = new Lazy<TensorExpr>(() => TensorExpr.View(TensorExpression.Value, tensorIndices));
+            return new GeneralTransformExpression(newDataType, expressionLazy, this);
+        }
+    }
+    public static AbstractValue GetConcat(ReadOnlySpan<AbstractValue> values, int axis) {
+        var immValues = values.ToImmutableArray();
+
+        var containsUndetermined = immValues.Any(e => !e.UntypedType.IsShapeComplete);
+
+        var expressions = immValues.Select(e => e.TensorExpression.Value).ToArray();
+
+        var newType = values[0].UntypedType.CreateShapedType(ShapeEvaluation.Concat(immValues.Select(e=>e.UntypedType.Shape).ToArray(), axis).Span);
+
+        if(containsUndetermined) {
+            var concatLazy = new Lazy<TensorExpr>(() => TensorExpr.Concat(expressions, axis));
+            return new GeneralCombinationExpression(newType, concatLazy, values.ToImmutableArray());
+
+        } else {
+            var concatExpression = TensorExpr.Concat(expressions, axis);
+            return new GeneralCombinationExpression(newType, concatExpression, values.ToImmutableArray());
+        }
+        
     }
     public AbstractValue UnwrapCast() {
         if (!(this is IUntypedCastExpression castExpression)) return this;
-        var castSource = castExpression.UntypedValue;
+        var castSource = castExpression.UntypedBaseValue;
         while (castSource is IUntypedCastExpression cast) {
-            castSource = cast.UntypedValue;
+            castSource = cast.UntypedBaseValue;
         }
         return castSource;
     }
     public RightValue<TData> Cast<TData>(TData? type = null) where TData : DataType, IDataType<TData> {
-        type ??= TData.CreateDefault();
-        return new CastExpression<TData>(type, Shape,this);
+        var nonNullType = type ?? TData.CreateDefault();
+        if(nonNullType is null) throw new InvalidOperationException($"{typeof(TData).Name} doesn't have default shape");
+        return new CastExpression<TData>(nonNullType, this);
     }
     public abstract void EnumerateSubNodes(Action<AbstractValue> callback);
-
-    private void PropagateDataType(AbstractValue subNode) {
-        subNode.Type = m_ValueType;
-    }
-
-    ~AbstractValue() {
-        if (m_WeakRef.IsAllocated) m_WeakRef.Free();
-    }
 }
 
 public class GeneralCombinationExpression : AbstractValue{
-    public AbstractValue[] SubExpressions { get; }
-    public GeneralCombinationExpression(DataType type,ValueShape newShape,AbstractValue[] subExpressions) : base(type.CreateWithWidth((uint)newShape.TotalBits), newShape) {
-        SubExpressions = subExpressions;
+    public ImmutableArray<AbstractValue> SubExpressions { get; }
+    public override Lazy<TensorExpr> TensorExpression { get; }
+    public GeneralCombinationExpression(DataType type, Lazy<TensorExpr> expression, IEnumerable<AbstractValue> baseValue) : base(type) {
+        SubExpressions = baseValue.ToImmutableArray();
+        TensorExpression = expression;
     }
     public override bool Equals(AbstractValue? other) {
         if (other is GeneralCombinationExpression combExpression) {
@@ -106,29 +110,22 @@ public class GeneralCombinationExpression : AbstractValue{
         foreach (var i in SubExpressions) callback(i);
     }
 }
-public interface IUntypedGeneralBitSelectionExpression: IUntypedUnaryExpression {
-    SpecifiedIndices SelectedRange { get; }
-}
-public class GeneralBitsSelectionExpression : AbstractValue, IUntypedGeneralBitSelectionExpression {
-    public SpecifiedIndices SelectedRange { get; }
 
-    public AbstractValue UntypedValue { get; }
+public class GeneralTransformExpression : AbstractValue, IUntypedUnaryExpression {
+    public override Lazy<TensorExpr> TensorExpression { get; }
+    public AbstractValue UntypedBaseValue { get; }
 
-    public GeneralBitsSelectionExpression(AbstractValue baseExpression, ValueShape shape, SpecifiedIndices range) : base(baseExpression.Type.CreateWithWidth((uint)range.TotalBits), shape) {
-        UntypedValue = baseExpression;
-        SelectedRange = range;
+    public GeneralTransformExpression(DataType type, Lazy<TensorExpr> expression, AbstractValue baseValue) :base(type) {
+        UntypedBaseValue = baseValue;
+        TensorExpression = expression;
     }
     public override bool Equals(AbstractValue? other) {
-        if (other is GeneralBitsSelectionExpression expression) {
-            if (expression.SelectedRange.Equals(SelectedRange) && expression.UntypedValue.Equals(UntypedValue)) {
-                return true;
-            }
-        }
-        return false;
+        if(other is not GeneralTransformExpression expression) return false;
+        return expression.TensorExpression.Equals(TensorExpression);
     }
 
     public override void EnumerateSubNodes(Action<AbstractValue> callback) {
-        callback(UntypedValue);
+        callback(UntypedBaseValue);
     }
 }
 
@@ -159,7 +156,6 @@ public interface ILeftValueOps<TData> where TData : DataType, IDataType<TData> {
 
 public interface IRightValueConvertible {
     AbstractValue UntypedRValue { get; }
-    ValueShape Shape { get; }
 }
 
 public interface IRightValueConvertible<TData>: IRightValueConvertible where TData : DataType, IDataType<TData> {
@@ -167,19 +163,20 @@ public interface IRightValueConvertible<TData>: IRightValueConvertible where TDa
 }
 public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValue<TData>, TData>, IRightValueSelectionOps<TData>, IRightValueConvertible<TData>,IReferenceTraceObject where TData: DataType,IDataType<TData> {
     public IAlg<TData> TypedAlgebra => (IAlg<TData>)Algebra;
-    public TData TypedType => (TData)Type;
+    public TData TypedType => (TData)UntypedType;
 
     public RightValue<TData> RValue => this;
 
     public AbstractValue UntypedRValue => this;
 
-    public RightValue(TData type, ValueShape shape,IAlg? algebra = null) : base(type, shape, algebra) {
+    public RightValue(TData type) : base(type) {
     }
     protected static void CheckArithmeticCompatiblity(RightValue<TData> lhs, RightValue<TData> rhs) {
         if (lhs.Algebra != rhs.Algebra) {
             throw new ArithmeticException($"Attempt to apply arithmetic operation over algebra {lhs.Algebra} and {rhs.Algebra}") ;
         }
     }
+    
     public static RightValue<TData> operator +(RightValue<TData> lhs, RightValue<TData> rhs) {
         CheckArithmeticCompatiblity(lhs, rhs);
         return lhs.TypedAlgebra.AddExpression(lhs, rhs);
@@ -251,28 +248,13 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
         return lhs.TypedAlgebra.NotExpression(lhs);
     }
     public RightValue<TCast> Cast<TCast>() where TCast : DataType, IDataType<TCast> {
-        return new CastExpression<TCast>(TCast.CreateWidth(Type.WidthBits), Shape,this);
+        return new CastExpression<TCast>(TCast.CreateWidth(UntypedType.Shape.Span),this);
     }
 
-    public RightValue<Bool> this[uint index] {
-        get => throw new NotImplementedException();
-        set => throw new NotImplementedException();
-    }
-    public RightValue<Bool> this[int index] {
-        get {
-            var indices = new GenericIndices(index);
-            var newShape = indices.ResolveResultType(Shape);
-            Debug.Assert(newShape.TotalBits == 1);
-
-            return new CastExpression<Bool>(Bool.CreateDefault(), newShape,  GetBitSelection(new(index..(index + 1))));
-        }
-        set => throw new NotImplementedException();
-    }
     public RightValue<TData> this[params GenericIndex[] range] {
         get {
-            var indices = new GenericIndices(range);
-            var selection = GetBitSelection(new(range));
-            return new CastExpression<TData>(TData.CreateWidth((uint)selection.Shape.Last()), selection.Shape,selection );
+            var selection = View(range);
+            return new CastExpression<TData>((TData)selection.UntypedType, selection);
         }
         set => throw new NotImplementedException();
     }
@@ -295,7 +277,7 @@ public abstract class RightValue<TData>: AbstractValue, IRightValueOps<RightValu
 
 
 public abstract class LeftValue<TData> : RightValue<TData>, ILeftValueOps<TData> where TData : DataType, IDataType<TData> {
-    public LeftValue(TData type, ValueShape shape,IAlg? algebra = null) : base(type, shape, algebra) {
+    public LeftValue(TData type) : base(type) {
     }
 
     
@@ -306,20 +288,20 @@ public interface IUntypedCastExpression: IUntypedUnaryExpression {
 }
 public class CastExpression<TDest> : RightValue<TDest>, IUntypedCastExpression where TDest : DataType, IDataType<TDest> {
 
-    public AbstractValue UntypedValue { get; }
-
-    public CastExpression(TDest type, ValueShape shape, AbstractValue value) : base(type,shape, type.DefaultAlgebra) {
-        UntypedValue = value;
+    public AbstractValue UntypedBaseValue { get; }
+    public override Lazy<TensorExpr> TensorExpression { get; }
+    public CastExpression(TDest type, AbstractValue value) : base(type) {
+        UntypedBaseValue = value;
+        TensorExpression = value.TensorExpression;
     }
-
     public override bool Equals(AbstractValue? other) {
         if(other is CastExpression<TDest> expression) {
-            return expression.UntypedValue.Equals(UntypedValue) && expression.Type.Equals(Type); 
+            return expression.UntypedBaseValue.Equals(UntypedBaseValue) && expression.UntypedType.Equals(UntypedType); 
         }
         return false;
     }
 
     public override void EnumerateSubNodes(Action<AbstractValue> callback) {
-        callback(UntypedValue);
+        callback(UntypedBaseValue);
     }
 }

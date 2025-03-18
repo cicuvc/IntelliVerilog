@@ -18,7 +18,12 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
         public TensorRawCombination(ReadOnlySpan<int> shape, ReadOnlySpan<TensorRawCombinationInfo> components) : base(shape) {
             Components = components.ToImmutableArray();
         }
-
+        public override bool Equals(TensorExpr? expr) {
+            if(expr is not TensorRawCombination view) return false;
+            if(!Shape.SequenceEqual(view.Shape)) return false;
+            if(!Components.SequenceEqual(view.Components)) return false;
+            return true;
+        }
         public override TransformIndexParts[] TransformIndices(ReadOnlySpan<TensorIndexExpr> indices) {
             var indicesImm = indices.ToImmutableArray();
             return Components.Select(e => new TransformIndexParts(e.IndicesRange.AsSpan(), indicesImm.AsSpan(), e.BaseExpression)).ToArray();
@@ -31,7 +36,13 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
             BaseExpression = baseExpr.ToImmutableArray();
             Dimension = dim;
         }
-
+        public override bool Equals(TensorExpr? expr) {
+            if(expr is not TensorConcat view) return false;
+            if(!Shape.SequenceEqual(view.Shape)) return false;
+            if(Dimension != view.Dimension) return false;
+            if(!BaseExpression.SequenceEqual(view.BaseExpression)) return false;
+            return true;
+        }
         public override TransformIndexParts[] TransformIndices(ReadOnlySpan<TensorIndexExpr> indices) {
             var dim = Dimension;
             var partsEndOffset = BaseExpression.Select(e => e.Shape[dim]).ToArray();
@@ -64,6 +75,14 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
             Strides = strides.ToImmutableArray();
             Bias = bias;
             m_BaseExpression = baseExpr;
+        }
+        public override bool Equals(TensorExpr? expr) {
+            if(expr is not TensorStridedViewExpr view) return false;
+            if(!m_BaseExpression.Equals(view.m_BaseExpression)) return false;
+            if(!Shape.SequenceEqual(view.Shape)) return false;
+            if(!Strides.SequenceEqual(view.Strides)) return false;
+            if(Bias != view.Bias) return false;
+            return true;
         }
         public override TransformIndex TransformIndices(ReadOnlySpan<TensorIndexExpr> indices) {
             if(indices.Length != Shape.Length) throw new ArgumentException("Indices length mismatch");

@@ -1,4 +1,5 @@
 ﻿using IntelliVerilog.Core.Analysis;
+using IntelliVerilog.Core.Analysis.TensorLike;
 using IntelliVerilog.Core.DataTypes;
 using IntelliVerilog.Core.Utils;
 using System;
@@ -17,7 +18,10 @@ namespace IntelliVerilog.Core.Expressions {
     public class RegRightValueWrapper<TData> : RightValue<TData>, IRegRightValueWrapper where TData : DataType, IDataType<TData> {
         public Reg<TData> RegDef { get; }
         public Reg UntyedReg => RegDef;
-        public RegRightValueWrapper(Reg<TData> Reg) : base((TData)Reg.UntypedType, Reg.Shape) {
+
+        public override Lazy<TensorExpr> TensorExpression => throw new NotImplementedException();
+
+        public RegRightValueWrapper(Reg<TData> Reg) : base((TData)Reg.UntypedType) {
             RegDef = Reg;
         }
         public override void EnumerateSubNodes(Action<AbstractValue> callback) { }
@@ -33,7 +37,7 @@ namespace IntelliVerilog.Core.Expressions {
         public IOverlappedObjectDesc Descriptor { get; set; }
         public abstract AbstractValue UntypedRValue { get; }
 
-        public Reg(DataType type, ValueShape shape ,ClockDomain? clockDom):base(type, shape, clockDom) {
+        public Reg(DataType type,ClockDomain? clockDom):base(type, clockDom) {
             var defaultName = $"R{Utility.GetRandomStringHex(16)}";
             Descriptor = new RegisterOverlappedDesc(defaultName, type) { this };
 
@@ -52,7 +56,8 @@ namespace IntelliVerilog.Core.Expressions {
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
             var componentModel = context.GetComponentBuildingModel(throwOnNull: true)!;
 
-            var Reg = new Reg<TData>(type,new(shape.ToArray().Append((int)type.WidthBits).ToArray()), clockDom) { 
+            
+            var Reg = new Reg<TData>(TData.CreateWidth([.. shape, .. type.Shape]), clockDom) { 
                 NoClockDomainCheck = noClockDomainCheck
             };
 
@@ -60,7 +65,7 @@ namespace IntelliVerilog.Core.Expressions {
             return ref Unsafe.As<IReferenceTraceObject, Reg<TData>>(ref pointerStorage.Pointer);
         }
         public static ref Reg<TData> Next<TData>(TData type, RightValue<TData> inputValue,ClockDomain? clockDom = null, bool noClockDomainCheck = false) where TData : DataType, IDataType<TData> {
-            ref var register = ref New(type, inputValue.Shape.AsSpan(), clockDom, noClockDomainCheck);
+            ref var register = ref New(inputValue.TypedType, [], clockDom, noClockDomainCheck);
 
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
             var componentModel = context.GetComponentBuildingModel(throwOnNull: true)!;
@@ -74,7 +79,7 @@ namespace IntelliVerilog.Core.Expressions {
 
     }
     public class ExpressedReg<TData> : Reg<TData>, IExpressionAssignedIoType where TData : DataType, IDataType<TData> {
-        public ExpressedReg(RightValue<TData> expression, ClockDomain? clockDom) : base(expression.TypedType, expression.Shape,clockDom) {
+        public ExpressedReg(RightValue<TData> expression, ClockDomain? clockDom) : base(expression.TypedType, clockDom) {
             Expression = expression;
         }
 
@@ -98,7 +103,7 @@ namespace IntelliVerilog.Core.Expressions {
             }
         }
         public override AbstractValue UntypedRValue => RValue;
-        public Reg(TData type, ValueShape shape,ClockDomain? clockDom) : base(type, shape, clockDom) {
+        public Reg(TData type, ClockDomain? clockDom) : base(type, clockDom) {
         }
 
         public static implicit operator Reg<TData>(RightValue<TData> value) {

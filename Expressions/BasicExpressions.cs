@@ -1,14 +1,25 @@
-﻿using IntelliVerilog.Core.DataTypes;
+﻿using IntelliVerilog.Core.Analysis.TensorLike;
+using IntelliVerilog.Core.DataTypes;
+using IntelliVerilog.Core.DataTypes.Shape;
 using IntelliVerilog.Core.Expressions.Algebra;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.Expressions {
+    public class BitsExtendExpression<TData> : UnaryExpression<TData> where TData : Bits1D<TData>, IDataType<TData> {
+        public bool IsArithmetric { get; }
+        public BitsExtendExpression(RightValue<TData> lhs, int targetSize, bool isArithmetric) : base(lhs, new([new(targetSize)])) {
+            IsArithmetric = isArithmetric;
+        }
+    }
     public interface IUntypedUnaryExpression {
-        AbstractValue UntypedValue { get; }
+        AbstractValue UntypedBaseValue { get; }
     }
     public interface IUntypedBinaryExpression {
         AbstractValue UntypedRight { get; }
@@ -19,20 +30,30 @@ namespace IntelliVerilog.Core.Expressions {
         public RightValue<TData> Right { get; }
         public AbstractValue UntypedRight => Right;
         public AbstractValue UntypedLeft => Left;
-        protected static ValueShape MakeShape(ValueShape operandShape) {
-            var newShape = operandShape.ToArray();
-            newShape[newShape.Length - 1] = 1;
-            return new(newShape);
-        }
-        protected BinaryRelationExpression(RightValue<TData> lhs, RightValue<TData> rhs) : base(Bool.CreateDefault(), MakeShape(lhs.Shape)) {
-            if(!lhs.Type.IsWidthSpecified && !rhs.Type.IsWidthSpecified) {
-                throw new Exception("Unable to infer data type width");
-            }
-            if (!lhs.Type.IsWidthSpecified) lhs.Type = rhs.Type;
-            if (!rhs.Type.IsWidthSpecified) rhs.Type = lhs.Type;
+        public override Lazy<TensorExpr> TensorExpression { get; }
+        protected static Bool MakeShape(RightValue<TData> lhs, RightValue<TData> rhs, Size estimatedWidth) {
+            // Example: A: int[5,5,32], B: int[5,1,28] => bool[5,5]
+            // Example: A: int[5,5,32], B: int[5,5,?] => bool[5,5]
 
+            var vecShape = ShapeEvaluation.BinaryOperatorVec(lhs.UntypedType.VecShape, rhs.UntypedType.VecShape, out _, out _);
+
+            return Bool.CreateWidth([..vecShape.Span, ..estimatedWidth.Span]);
+        }
+        protected BinaryRelationExpression(RightValue<TData> lhs, RightValue<TData> rhs, Size estimatedWidth) : base(MakeShape(lhs, rhs, estimatedWidth)) {
             Left = lhs;
             Right = rhs;
+
+            if(lhs.TypedType.IsShapeComplete && rhs.TypedType.IsShapeComplete) {
+                TensorExpression = MakeTensorExpression(lhs, rhs);
+            } else {
+                TensorExpression = new(() => MakeTensorExpression(lhs, rhs));
+            }
+        }
+        protected TensorExpr MakeTensorExpression(RightValue<TData> lhs, RightValue<TData> rhs) {
+            Debug.Assert(lhs.TypedType.IsShapeComplete && rhs.TypedType.IsShapeComplete);
+
+            return new TensorVarExpr<BinaryRelationExpression<TData>>(this, UntypedType.Shape.ToImmutableIntShape());
+
         }
         public override bool Equals(AbstractValue? other) {
             if (other is BinaryExpression<TData> expression) {
@@ -47,29 +68,42 @@ namespace IntelliVerilog.Core.Expressions {
             callback(UntypedRight);
         }
     }
+   
     public abstract class BinaryExpression<TData> : RightValue<TData> , IUntypedBinaryExpression where TData : DataType, IDataType<TData> {
         public RightValue<TData> Left { get; }
         public RightValue<TData> Right { get; }
         public AbstractValue UntypedRight => Right;
         public AbstractValue UntypedLeft => Left;
-        protected static TData MakeDefaultWidth(RightValue<TData> lhs, RightValue<TData> rhs) {
-            if(!lhs.Type.IsWidthSpecified && !lhs.Type.IsWidthSpecified) {
-                return (TData)lhs.Type.CreateWithWidth(uint.MaxValue);
-            }
-            if(!lhs.Type.IsWidthSpecified) {
-                return (TData)(lhs.Type = rhs.Type);
-            }
-            if (!rhs.Type.IsWidthSpecified) {
-                return (TData)(rhs.Type = lhs.Type);
-            }
-            if(rhs.Type.WidthBits != lhs.Type.WidthBits) {
-                throw new ArithmeticException("Bit width mismatch");
-            }
-            return (TData)lhs.Type;
+        public override Lazy<TensorExpr> TensorExpression { get; }
+        
+        
+        /// <summary>
+        /// Infer shape of result of binary operation.
+        /// </summary>
+        /// <param name="lhs">Left-hand side expression</param>
+        /// <param name="rhs">Right-hand side expression</param>
+        /// <param name="estimatedWidth">Estimated width of result</param>
+        /// <param name="autoPropagation">When shape of either side of expression is undetermined, automatically propagate shape from the determined side to undetermined side</param>
+        /// <returns></returns>
+        protected static TData MakeDefaultWidth(RightValue<TData> lhs, RightValue<TData> rhs, Size estimatedWidth) {
+            var vecShape = ShapeEvaluation.BinaryOperatorVec(lhs.UntypedType.VecShape, rhs.UntypedType.VecShape, out _, out _);
+
+            return TData.CreateWidth([.. vecShape.Span, ..estimatedWidth.Span]);
         }
-        protected BinaryExpression(RightValue<TData> lhs, RightValue<TData> rhs) : base(MakeDefaultWidth(lhs,rhs), lhs.Shape) {
+        protected TensorExpr MakeTensorExpression() {
+            Debug.Assert(TypedType.IsShapeComplete);
+            return new TensorVarExpr<BinaryExpression<TData>>(this, TypedType.Shape.ToImmutableIntShape());
+
+        }
+        protected BinaryExpression(RightValue<TData> lhs, RightValue<TData> rhs, Size estimatedWidth) : base(MakeDefaultWidth(lhs,rhs, estimatedWidth)) {
             Left = lhs;
             Right = rhs;
+
+            if(lhs.TypedType.IsShapeComplete && rhs.TypedType.IsShapeComplete) {
+                TensorExpression = MakeTensorExpression();
+            } else {
+                TensorExpression = new(MakeTensorExpression);
+            }
         }
         public override bool Equals(AbstractValue? other) {
             if(other is BinaryExpression<TData> expression) {
@@ -86,10 +120,19 @@ namespace IntelliVerilog.Core.Expressions {
     }
     public abstract class UnaryExpression<TData> : RightValue<TData>, IUntypedUnaryExpression where TData : DataType, IDataType<TData> {
         public RightValue<TData> Left { get; }
-
-        public AbstractValue UntypedValue => Left;
-        protected UnaryExpression(RightValue<TData> lhs) : base(lhs.TypedType, lhs.Shape) {
+        public override Lazy<TensorExpr> TensorExpression { get; }
+        public AbstractValue UntypedBaseValue => Left;
+        protected TensorExpr MakeTensorExpression() {
+            return new TensorVarExpr<UnaryExpression<TData>>(this, UntypedType.Shape.ToImmutableIntShape());
+        }
+        protected UnaryExpression(RightValue<TData> lhs, Size estimatedSize) : base(TData.CreateWidth([..lhs.TypedType.VecShape.Span, ..estimatedSize.Span])) {
             Left = lhs;
+
+            if(lhs.TypedType.IsShapeComplete) {
+                TensorExpression = MakeTensorExpression();
+            } else {
+                TensorExpression = new(MakeTensorExpression);
+            }
         }
         public override bool Equals(AbstractValue? other) {
             if (other is BinaryExpression<TData> expression) {

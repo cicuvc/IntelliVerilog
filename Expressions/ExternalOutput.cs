@@ -39,7 +39,7 @@ namespace IntelliVerilog.Core.Expressions {
             throw new NotImplementedException();
         }
 
-        public ExternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member, IUntypedConstructionPort internalPort) : base(dataType, new([(int)dataType.WidthBits])) {
+        public ExternalOutput(TData dataType,IUntypedDeclPort creator, IoBundle parent, ComponentBase root, IoMemberInfo member, IUntypedConstructionPort internalPort) : base(dataType) {
             PortMember = member; ;
             Parent = parent;
             Component = root;

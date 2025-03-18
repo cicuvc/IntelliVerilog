@@ -48,6 +48,9 @@ namespace IntelliVerilog.Core.Runtime.Core {
         protected uint m_VtblWhichGeneration;
         protected uint m_VtblIsConcurrentGCInProgress;
 
+        protected nint m_LowestHeapAddressPtr;
+        protected nint m_HighestHeapAddressPtr;
+
         public bool CollectorPaused => m_PauseRequests > 0;
 
         public bool CollectorDisabled => m_DisableRequests > 0;
@@ -55,6 +58,7 @@ namespace IntelliVerilog.Core.Runtime.Core {
         protected uint m_PauseRequests = 0;
         protected uint m_DisableRequests = 0;
         protected bool m_BackgroundGCEnabled;
+        protected nint m_IsPreemptiveGCDisabledAddress;
 
         public GCHelpersCore5Plus() {
             var inspectionLocator = IntelliVerilogLocator.GetService<IRuntimeDebugInfoService>();
@@ -66,7 +70,11 @@ namespace IntelliVerilog.Core.Runtime.Core {
 
             var iGCHeapType = inspectionLocator.FindType("IGCHeap");
 
+            m_IsPreemptiveGCDisabledAddress = inspectionLocator.FindGlobalFunctionEntry("standalone::GCToEEInterface::IsPreemptiveGCDisabled");
+
             Debug.Assert(iGCHeapType != null);
+            Debug.Assert((m_LowestHeapAddressPtr = inspectionLocator.FindGlobalVariableAddress("g_lowest_address")) != nint.Zero);
+            Debug.Assert((m_HighestHeapAddressPtr = inspectionLocator.FindGlobalVariableAddress("g_highest_address")) != nint.Zero);
             Debug.Assert(iGCHeapType.GetVirtualMethodOffset("IsHeapPointer",out m_VtblIsHeapPointerOffset));
             Debug.Assert(iGCHeapType.GetVirtualMethodOffset("IsPromoted", out m_VtblWhichGeneration));
             Debug.Assert(iGCHeapType.GetVirtualMethodOffset("TemporaryDisableConcurrentGC", out m_VtblTemporaryDisableConcurrentGC));
@@ -95,14 +103,20 @@ namespace IntelliVerilog.Core.Runtime.Core {
                 GC.EndNoGCRegion();
             }
         }
+        // [TODO] Fix this
 
         public unsafe bool IsHeapPointer(nint pointer) {
             var gcHeapPtr = *(nint*)m_PtrGlobalGCHeap;
             var vtblPtr = *(nint*)gcHeapPtr;
             var isHeapPointerFunc = ((nint*)vtblPtr)[m_VtblIsHeapPointerOffset / nint.Size];
+
+            var lowAddr = *(nint*)m_LowestHeapAddressPtr;
+            var highAddr = *(nint*)m_LowestHeapAddressPtr;
+
+            if(pointer < lowAddr || pointer >= highAddr) return false;
+
             var isHeapPointer = (delegate* unmanaged[Cdecl]<nint, nint, bool, byte>)isHeapPointerFunc;
 
-            //var gen = (((delegate* unmanaged[Cdecl]<nint, nint, int>*)vtblPtr)[m_VtblWhichGeneration / nint.Size])(gcHeapPtr, pointer);
             return isHeapPointer(gcHeapPtr, pointer, false) != 0;
         }
 

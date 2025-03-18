@@ -19,6 +19,13 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
 
             return new TransformIndex(newIndices, BaseExpression);
         }
+
+        public override bool Equals(TensorExpr? expr) {
+            if(expr is TensorPermute perm) {
+                return Dims.SequenceEqual(perm.Dims) && BaseExpression.Equals(perm.BaseExpression);
+            }
+            return false;
+        }
     }
 
 }

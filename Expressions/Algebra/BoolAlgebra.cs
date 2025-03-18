@@ -8,60 +8,60 @@ using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core.Expressions.Algebra {
     public class BoolAddExpression : BinaryExpression<Bool> {
-        public BoolAddExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolAddExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
     public class BoolSubExpression : BinaryExpression<Bool> {
-        public BoolSubExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolSubExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
     public class BoolMulExpression : BinaryExpression<Bool> {
-        public BoolMulExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolMulExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
     public class BoolDivExpression : BinaryExpression<Bool> {
-        public BoolDivExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolDivExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
     public class BoolXorExpression : BinaryExpression<Bool> {
-        public BoolXorExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolXorExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
     public class BoolAndExpression : BinaryExpression<Bool> {
-        public BoolAndExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolAndExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
     public class BoolOrExpression : BinaryExpression<Bool> {
-        public BoolOrExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolOrExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
     public class BoolNotExpression : UnaryExpression<Bool> {
-        public BoolNotExpression(RightValue<Bool> lhs) : base(lhs) {
+        public BoolNotExpression(RightValue<Bool> lhs) : base(lhs, []) {
         }
     }
     public class BoolEqualExpression : BinaryRelationExpression<Bool> {
-        public BoolEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
     public class BoolNonEqualExpression : BinaryRelationExpression<Bool> {
-        public BoolNonEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolNonEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
 
     public class BoolGreaterExpression : BinaryRelationExpression<Bool> {
-        public BoolGreaterExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolGreaterExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
     public class BoolGreaterEqualExpression : BinaryRelationExpression<Bool> {
-        public BoolGreaterEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolGreaterEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
     public class BoolLessEqualExpression : BinaryRelationExpression<Bool> {
-        public BoolLessEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolLessEqualExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
     public class BoolLessExpression : BinaryRelationExpression<Bool> {
-        public BoolLessExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs) {
+        public BoolLessExpression(RightValue<Bool> lhs, RightValue<Bool> rhs) : base(lhs, rhs, []) {
         }
     }
     public class BoolAlgebra : IAlg<Bool> {

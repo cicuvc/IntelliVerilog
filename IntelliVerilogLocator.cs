@@ -6,16 +6,23 @@ using System.Threading.Tasks;
 
 namespace IntelliVerilog.Core {
     public static class IntelliVerilogLocator {
-        private static Dictionary<Type, Func<object>> m_Services = new();
+        private static class LocatorImpl<T> {
+            public static Lazy<T> Service { get; set; }
+        }
+
         public static T? GetService<T>() where T:class {
-            m_Services.TryGetValue(typeof(T), out var value);
-            return (T?)value?.Invoke();
+            var service = LocatorImpl<T>.Service;
+            if(service.IsNil) return default;
+            return service.Value;
+        }
+        public static T GetServiceNonNull<T>() where T : class {
+            return GetService<T>() ?? throw new NullReferenceException("Requested service is null");
         }
         public static void RegisterService<T>(Func<T> lazyFunction) where T : class {
-            m_Services.Add(typeof(T), ()=>lazyFunction());
+            LocatorImpl<T>.Service = new(lazyFunction);
         }
-        public static void RegisterService<T>(T lazyFunction) where T : class {
-            m_Services.Add(typeof(T), () => lazyFunction);
+        public static void RegisterService<T>(T value) where T : class {
+            LocatorImpl<T>.Service = new(value);
         }
     }
 }

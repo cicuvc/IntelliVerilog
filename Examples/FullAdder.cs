@@ -59,7 +59,7 @@ namespace IntelliVerilog.Core.Examples {
                     }
                 };
 
-                fullAdder.Io.A[0] = io.A[i].Cast<Bool>();
+                fullAdder.Io.A = io.A[i].Cast<Bool>();
                 io.S[i] = fullAdder.Io.S.RValue.Cast<UInt>();
                 //io.S[i] = fullAdder.Io.S;
                 carryInput = fullAdder.Io.CO;

@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="CodeGen\Verilog\VerilogGenerator.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Iced" Version="1.21.0" />
     <PackageReference Include="MemoryPack" Version="1.21.1" />
     <PackageReference Include="SharpPdb" Version="1.0.4" />

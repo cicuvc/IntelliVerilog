@@ -21,7 +21,7 @@ namespace IntelliVerilog.Core.Expressions {
 
         public AbstractValue UntypedExpression => Expression;
 
-        public ExpressedInput(RightValue<TData> expression) : base(expression.TypedType, new([(int)expression.TypedType.WidthBits])) {
+        public ExpressedInput(RightValue<TData> expression) : base(expression.TypedType) {
             Expression = expression;
         }
     }
@@ -36,7 +36,7 @@ namespace IntelliVerilog.Core.Expressions {
             return new ExpressedInput<TData>(value);
         }
         public static implicit operator Input<TData>(TData dataType) {
-            return new DeclInput<TData>(dataType, new(dataType.WithShape.Append((int)dataType.WidthBits).ToArray()));
+            return new DeclInput<TData>(dataType);
         }
         public static implicit operator Input<TData>(Output<TData> value) {
             return value.RValue;
@@ -51,7 +51,7 @@ namespace IntelliVerilog.Core.Expressions {
         public override GeneralizedPortFlags Flags =>
             GeneralizedPortFlags.SingleComponent | GeneralizedPortFlags.Placeholder | GeneralizedPortFlags.DeclPort;
 
-        public override ValueShape Shape { get; }
+        public override Size Shape { get; }
         public IoMemberInfo PortMember { get; }
         public IoBundle Parent { get; }
         public ComponentBase Component { get; }
@@ -64,7 +64,7 @@ namespace IntelliVerilog.Core.Expressions {
             PortMember = member; ;
             Parent = parent;
             Component = root;
-            Shape = new([(int)TData.CreateDefault().WidthBits]);
+            Shape = TData.CreateDefault().Shape; // [TODO] Check this
         }
 
         public IUntypedPort CreateInternalPlaceholder(IoBundle parent, IoMemberInfo member) {
@@ -81,11 +81,11 @@ namespace IntelliVerilog.Core.Expressions {
     }
     public abstract class TypeSpecifiedInput<TData> : Input<TData> where TData : DataType, IDataType<TData> {
         protected DataType m_UntypedType;
-        public override ValueShape Shape { get; }
+        public override Size Shape { get; }
         public DataType UntypedType { get => m_UntypedType; set => throw new NotImplementedException(); }
-        public TypeSpecifiedInput(TData type, ValueShape shape) {
+        public TypeSpecifiedInput(TData type) {
             m_UntypedType = type;
-            Shape = shape;
+            Shape = type.Shape;
         }
     }
 
@@ -95,7 +95,7 @@ namespace IntelliVerilog.Core.Expressions {
             GeneralizedPortFlags.SingleComponent | GeneralizedPortFlags.DeclPort;
         public override RightValue<TData> this[params GenericIndex[] range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
-        public DeclInput(TData type,ValueShape shape) : base(type, shape) { }
+        public DeclInput(TData type) : base(type) { }
 
         public IUntypedPort CreateInternalPlaceholder(IoBundle parent, IoMemberInfo member) {
             var currentComponent = parent;
@@ -114,7 +114,7 @@ namespace IntelliVerilog.Core.Expressions {
         public override GeneralizedPortFlags Flags =>
             GeneralizedPortFlags.WidthSpecified | GeneralizedPortFlags.SingleComponent |
             GeneralizedPortFlags.Placeholder | GeneralizedPortFlags.ExternalPort;
-        public ExternalInput(TData dataType, IUntypedDeclPort creator,IoBundle parent, ComponentBase root, IoMemberInfo member, IUntypedConstructionPort internalPort) : base(dataType, creator.Shape) {
+        public ExternalInput(TData dataType, IUntypedDeclPort creator,IoBundle parent, ComponentBase root, IoMemberInfo member, IUntypedConstructionPort internalPort) : base(dataType) {
             PortMember = member; ;
             Parent = parent;
             Component = root;
@@ -171,7 +171,7 @@ namespace IntelliVerilog.Core.Expressions {
         };
         public ClockDomain ClockDom { get; }
         public ClockDomainSignal SignalType { get; }
-        public ClockDomainWire(ClockDomain clockDom, ClockDomainSignal sigType) : base(Bool.CreateDefault(), new([1])) {
+        public ClockDomainWire(ClockDomain clockDom, ClockDomainSignal sigType) : base(Bool.CreateDefault()) {
             ClockDom = clockDom;
             SignalType = sigType;
 
@@ -185,7 +185,7 @@ namespace IntelliVerilog.Core.Expressions {
         };
         public ClockDomain ClockDom { get; }
         public ClockDomainSignal SignalType { get; }
-        public ClockDomainInput(ClockDomain clockDom, ClockDomainSignal sigType,ComponentBase component) : base(Bool.CreateDefault(), new([1])) {
+        public ClockDomainInput(ClockDomain clockDom, ClockDomainSignal sigType,ComponentBase component) : base(Bool.CreateDefault()) {
             ClockDom = clockDom;
             SignalType = sigType;
             Component = component;
@@ -212,7 +212,7 @@ namespace IntelliVerilog.Core.Expressions {
             GeneralizedPortFlags.ClockReset;
     }
     public class InternalInput<TData> : TypeSpecifiedInput<TData>, IUntypedConstructionPort, IAssignableValue where TData : DataType, IDataType<TData> {
-        public InternalInput(TData dataType, IUntypedDeclPort creator,IoBundle parent, ComponentBase root, IoMemberInfo member) : base(dataType, creator.Shape) {
+        public InternalInput(TData dataType, IUntypedDeclPort creator,IoBundle parent, ComponentBase root, IoMemberInfo member) : base(dataType) {
             PortMember = member; ;
             Parent = parent;
             Component = root;

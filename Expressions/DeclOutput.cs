@@ -9,7 +9,7 @@ namespace IntelliVerilog.Core.Expressions {
             GeneralizedPortFlags.SingleComponent | GeneralizedPortFlags.DeclPort;
         public override RightValue<TData> this[params GenericIndex[] range] { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
-        public DeclOutput(TData type) : base(type, new([(int)type.WidthBits])) { }
+        public DeclOutput(TData type) : base(type) { }
 
         public IUntypedPort CreateInternalPlaceholder(IoBundle parent, IoMemberInfo member) {
             var currentComponent = parent;

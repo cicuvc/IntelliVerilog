@@ -1,8 +1,10 @@
 ﻿using IntelliVerilog.Core.Analysis;
+using IntelliVerilog.Core.Analysis.TensorLike;
 using IntelliVerilog.Core.DataTypes;
 using IntelliVerilog.Core.Utils;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -13,11 +15,42 @@ namespace IntelliVerilog.Core.Expressions {
     public interface IWireRightValueWrapper {
         Wire UntyedWire { get; }
     }
+    public class ExpressionRightValueWrapper<TData>: RightValue<TData> where TData : DataType, IDataType<TData> {
+        public ExpressionRightValueWrapper(AbstractValue value) : base((TData)value.UntypedType) {
+            UntypedValue = value;
+        }
+
+        public AbstractValue UntypedValue { get; }
+
+        public override Lazy<TensorExpr> TensorExpression => UntypedValue.TensorExpression;
+
+        public override void EnumerateSubNodes(Action<AbstractValue> callback) {
+            callback(UntypedValue);
+        }
+
+        public override bool Equals(AbstractValue? other) {
+            if(other is ExpressionRightValueWrapper<TData> expression) {
+                return expression.UntypedValue.Equals(UntypedValue);
+            }
+            return false;
+        }
+    }
     public class WireRightValueWrapper<TData> : RightValue<TData> , IWireRightValueWrapper where TData : DataType, IDataType<TData> {
         public Wire<TData> WireDef { get; }
         public Wire UntyedWire => WireDef;
-        public WireRightValueWrapper(Wire<TData> wire):base((TData)wire.UntypedType,wire.Shape) {
+
+        public override Lazy<TensorExpr> TensorExpression { get; }
+
+        protected TensorExpr MakeTensorExpression() {
+            return new TensorVarExpr<Wire>(WireDef, WireDef.Shape.ToImmutableIntShape());
+        }
+        public WireRightValueWrapper(Wire<TData> wire):base((TData)wire.UntypedType) {
             WireDef = wire;
+            if(wire.Shape.IsAllDetermined) {
+                TensorExpression = MakeTensorExpression();
+            } else {
+                TensorExpression = new(MakeTensorExpression);
+            }
         }
         public override void EnumerateSubNodes(Action<AbstractValue> callback) {}
 
@@ -36,9 +69,9 @@ namespace IntelliVerilog.Core.Expressions {
         public IOverlappedObjectDesc Descriptor { get; set; }
 
         public abstract AbstractValue UntypedRValue { get; }
-        public ValueShape Shape { get; }
+        public Size Shape { get; }
 
-        public Wire(DataType type, ValueShape shape) {
+        public Wire(DataType type) {
             var defaultName = $"W{Utility.GetRandomStringHex(16)}";
 
             UntypedType = type;
@@ -46,14 +79,13 @@ namespace IntelliVerilog.Core.Expressions {
 
             Name = () => $"{Descriptor.InstanceName}_{((List<Wire>)Descriptor).IndexOf(this)}";
 
-            Shape = shape;
+            Shape = type.Shape;
         }
-        public static ref Wire<TData> New<TData>(TData type, int[]? shape = null) where TData : DataType, IDataType<TData> {
+        public static ref Wire<TData> New<TData>(TData type, ReadOnlySpan<int> shape = default) where TData : DataType, IDataType<TData> {
             var context = IntelliVerilogLocator.GetService<AnalysisContext>()!;
             var componentModel = context.GetComponentBuildingModel(throwOnNull: true)!;
 
-            shape ??= Array.Empty<int>();
-            var wire = new Wire<TData>(type, new(shape.Append((int)type.WidthBits).ToArray()));
+            var wire = new Wire<TData>(TData.CreateWidth([..shape, ..type.Shape]));
 
             var pointerStorage = componentModel.RegisterWire(wire);
             return ref Unsafe.As<IReferenceTraceObject, Wire<TData>>(ref pointerStorage.Pointer);
@@ -64,7 +96,7 @@ namespace IntelliVerilog.Core.Expressions {
         }
     }
     public class ExpressedWire<TData>:Wire<TData> , IExpressionAssignedIoType where TData : DataType, IDataType<TData> {
-        public ExpressedWire(RightValue<TData> expression) : base(expression.TypedType, expression.Shape) {
+        public ExpressedWire(RightValue<TData> expression) : base(expression.TypedType) {
             Expression = expression;
         }
 
@@ -84,7 +116,7 @@ namespace IntelliVerilog.Core.Expressions {
             }
         }
         public override AbstractValue UntypedRValue => RValue;
-        public Wire(TData type,ValueShape shape) : base(type,shape) {
+        public Wire(TData type) : base(type) {
             var componentModel = IntelliVerilogLocator.GetService<AnalysisContext>()!.GetComponentBuildingModel(throwOnNull: true)!;
             componentModel.AddEntity(this);
          

@@ -261,7 +261,7 @@ namespace IntelliVerilog.Core.Components {
 
         public Func<string> Name { get; set; } = () => "<unnamed bundle>";
         [IoIgnore]
-        public ValueShape Shape => throw new NotImplementedException();
+        public Size Shape => throw new NotImplementedException();
 
         public IoBundle() {
             Component = Component ?? null!;
