@@ -1,11 +1,14 @@
-﻿using IntelliVerilog.Core.DataTypes;
+﻿using IntelliVerilog.Core.Analysis;
+using IntelliVerilog.Core.DataTypes;
 using IntelliVerilog.Core.Expressions;
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace IntelliVerilog.Core.CodeGen.Verilog {
-    public class VerilogPort : IShapedVerilogElement {
+    public class VerilogPort : IExpressionVerilogElement {
+        public VerilogModule AstModule { get; }
         public bool NoLineEnd => false;
         public VerilogPortDirection Direction { get; }
         public IoComponent InternalPort { get; }
@@ -15,7 +18,12 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
 
         public ImmutableArray<int> Shape { get; }
 
-        public VerilogPort(IoComponent internalPort) {
+        public AssignmentInfo? Assignments { get; }
+
+        public VerilogPort(VerilogModule astModule,IoComponent internalPort, AssignmentInfo? assignmentInfo) {
+            AstModule = astModule;
+            Assignments = assignmentInfo;
+
             InternalPort = internalPort;
             Direction = internalPort.Direction switch {
                 IoPortDirection.Input => VerilogPortDirection.Input,
@@ -32,6 +40,7 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         }
 
         public void GenerateBlock(VerilogGenerationContext context) {
+
         }
 
         public void GenerateCode(VerilogGenerationContext context) {

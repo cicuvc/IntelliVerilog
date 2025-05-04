@@ -15,7 +15,11 @@ namespace IntelliVerilog.Core.Expressions {
     public interface IWireRightValueWrapper {
         Wire UntyedWire { get; }
     }
-    public class ExpressionRightValueWrapper<TData>: RightValue<TData> where TData : DataType, IDataType<TData> {
+    public interface IExpressionRightValueWrapper {
+        AbstractValue UntypedValue { get; }
+        Lazy<TensorExpr> TensorExpression { get; }
+    }
+    public class ExpressionRightValueWrapper<TData>: RightValue<TData>, IExpressionRightValueWrapper where TData : DataType, IDataType<TData> {
         public ExpressionRightValueWrapper(AbstractValue value) : base((TData)value.UntypedType) {
             UntypedValue = value;
         }

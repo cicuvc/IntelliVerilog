@@ -7,6 +7,8 @@ namespace IntelliVerilog.Core.CodeGen.Verilog {
         public string NewLine { get; set; } = Environment.NewLine;
         public override string ExtensionName { get; set; } = ".v";
 
+        public int AssignmentUnrollLimit { get; set; } = 4;
+
         public static ICodeGenBackend<VerilogGenerationConfiguration> CreateBackend() {
             return new VerilogBackend();
         }

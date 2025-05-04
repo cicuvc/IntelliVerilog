@@ -18,10 +18,10 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
         }
         public static ReadOnlySpan<int> CumulativeProductFull(ReadOnlySpan<int> shape) {
             var result = new int[shape.Length + 1];
-            var currentValue = 1;
-            for(var i = shape.Length; i >= 0; i--) {
-                result[i] = currentValue;
+            var currentValue = result[^1] = 1;
+            for(var i = shape.Length - 1; i >= 0; i--) {
                 currentValue *= shape[i];
+                result[i] = currentValue;
             }
             return result;
         }

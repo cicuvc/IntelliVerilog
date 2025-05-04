@@ -2,7 +2,10 @@
 using System.Linq;
 
 namespace IntelliVerilog.Core.Analysis.TensorLike {
-    public class TensorVarExpr<TData> : TensorLeafExpr where TData:class {
+    public interface ITensorVarExpr {
+        object? UntypedData { get; }
+    }
+    public class TensorVarExpr<TData> : TensorLeafExpr, ITensorVarExpr where TData:class {
         public TData? Data { get; set; }
         public override object? UntypedData => Data;
         public TensorVarExpr(TData? data, ReadOnlySpan<int> shape) : base(shape) {

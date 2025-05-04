@@ -8,6 +8,7 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
         public abstract bool Accept(ITensorIndexExprVisitor visitor, ref TensorIndexExpr parentSlot);
         public abstract bool VisitSubNodes(ITensorIndexExprVisitor visitor);
         public override string ToString() => throw new NotImplementedException();
+        public abstract int Evaluate();
     }
 
 }

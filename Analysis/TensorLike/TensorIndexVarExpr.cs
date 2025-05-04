@@ -24,6 +24,8 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
             changed |= BaseExpression.VisitSubNodes(visitor);
             return changed;
         }
+
+        public override int Evaluate() => m_BaseExpression.Evaluate();
     }
     public class TensorIndexVarExpr<TData> : TensorIndexVarExpr {
         public TData? Identifier { get; }
@@ -34,17 +36,22 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
             return Identifier?.ToString() ?? base.ToString();
         }
     }
+    public interface IEvaluatable {
+        int Value { get; }
+    }
     public class TensorIndexVarExpr : TensorIndexExpr {
         public static TensorIndexVarExpr Zero { get; } = new(0, 0);
         public override int MinValue { get; }
         public override int MaxValue { get; }
         public override int GreatestCommonDivisorValue { get; }
+        public int Value { get; set; }
         public TensorIndexVarExpr(int min, int max) {
-            MinValue = min;
+            MinValue = Value = min;
             MaxValue = max;
 
             GreatestCommonDivisorValue = min == max ? min : 1;
         }
+        public override int Evaluate() => Value;
         [DebuggerStepThrough]
         public override bool Accept(ITensorIndexExprVisitor visitor, ref TensorIndexExpr parentSlot)
             => visitor.Visit(this, ref parentSlot);

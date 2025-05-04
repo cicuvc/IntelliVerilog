@@ -20,6 +20,7 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
             GreatestCommonDivisorValue = lhs.GreatestCommonDivisorValue % divisor == 0 ?
                 lhs.GreatestCommonDivisorValue / divisor : (MaxValue == MinValue ? MinValue : 1);
         }
+        public override int Evaluate() => m_BaseExpression.Evaluate() / Divisor;
         [DebuggerStepThrough]
         public override bool Accept(ITensorIndexExprVisitor visitor, ref TensorIndexExpr parentSlot)
             => visitor.Visit(this, ref parentSlot);

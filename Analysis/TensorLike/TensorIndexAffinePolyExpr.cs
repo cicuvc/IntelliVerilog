@@ -41,6 +41,10 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
             MaxValue = maxValue;
             GreatestCommonDivisorValue = gcd;
         }
+
+        public override int Evaluate() {
+            return Bias + SubExpressions.Select((e, idx) => Coefficients[idx] * e.Evaluate()).Sum();
+        }
         [DebuggerStepThrough]
         public override bool Accept(ITensorIndexExprVisitor visitor, ref TensorIndexExpr parentSlot)
             => visitor.Visit(this, ref parentSlot);

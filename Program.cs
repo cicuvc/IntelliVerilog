@@ -535,8 +535,9 @@ public struct GenericIndex {
     /// Erase variable index infomation and assume accessed by index 0
     /// </summary>
     /// <returns></returns>
-    public SliceIndex ToErased() {
-        return Type != SliceIndexType.Variable ? ConstIndex : 0;
+    public SliceIndex ToErased(bool throwOnVariable = false) {
+        return Type != SliceIndexType.Variable ? ConstIndex : 
+            (throwOnVariable ? throw new ArgumentException("Variable index not allowed here") : 0);
     }
 }
 public struct ImmutableBitset<TNumber> where TNumber : unmanaged, IUnsignedNumber<TNumber>, IShiftOperators<TNumber, int, TNumber>, IBitwiseOperators<TNumber, TNumber, TNumber> {
@@ -614,21 +615,10 @@ public struct Lazy<T> {
     public static implicit operator Lazy<T>(T value) => new(value);
 }
 public unsafe static class App {
-    struct Klass {
-        int A;
-        public void IncA() {
-            A++;
-        }
-    }
-
 
     public static void Main() {
 
         Debugger.Break();
-
-        var va = new Dictionary<int, Klass>();
-        va.Add(0, new());
-        va[0].IncA();
 
         IntelliVerilogLocator.RegisterService(ManagedDebugInfoService.Instance);
         IntelliVerilogLocator.RegisterService<IDemangleSerivce>(CxxDemangle.Instance);
@@ -664,16 +654,7 @@ public unsafe static class App {
         var generator = new IvDefaultCodeGenerator<VerilogGenerationConfiguration>();
 
         using (ClockArea.Begin(clkDomain)) {
-            var adder = new ReshapeTest(8);
-
-            foreach(var (k,v) in adder.InternalModel.GenericAssignments) {
-                if(k.Shape[0].Value == 16) {
-                    var rv = v[0].RightValue;
-                    var tee = rv.TensorExpression.Value;
-
-                    var parts = tee.ExpandAllIndices(["i"]);
-                }
-            }
+            var adder = new FullAdder();
 
             var modules = generator.GenerateModule(adder);
 

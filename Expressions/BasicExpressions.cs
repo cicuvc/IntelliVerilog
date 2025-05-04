@@ -24,6 +24,7 @@ namespace IntelliVerilog.Core.Expressions {
     public interface IUntypedBinaryExpression {
         AbstractValue UntypedRight { get; }
         AbstractValue UntypedLeft { get; }
+        Lazy<TensorExpr> TensorExpression { get; }
     }
     public abstract class BinaryRelationExpression<TData> : RightValue<Bool>, IUntypedBinaryExpression where TData : DataType, IDataType<TData> {
         public RightValue<TData> Left { get; }

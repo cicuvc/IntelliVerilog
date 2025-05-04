@@ -100,7 +100,7 @@ namespace IntelliVerilog.Core.Analysis.TensorLike {
         public TransformIndex ExpandIndices(ReadOnlySpan<TensorIndexExpr> indices) {
             var transformed = TransformIndices(indices);
             if(transformed.BaseExpr is TensorTransformExpr transformExpr) {
-                return transformExpr.ExpandIndices(indices);
+                return transformExpr.ExpandIndices(transformed.Indices.AsSpan());
             }
             return transformed;
         }
